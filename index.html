@@ -1,10 +1,13 @@
+---
+layout: null
+---
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>xiaosy · 个人博客</title>
-<meta name="description" content="xiaosy 的个人博客：记录代码、思考与折腾的乐趣。基于 Hugo 构建，托管于 GitHub Pages。" />
+<title>{{ site.title }}</title>
+<meta name="description" content="{{ site.description }}" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -166,6 +169,7 @@
   .cat-btn .count{font-size:.75rem; font-weight:700; background:var(--surface-2); color:var(--ink-3); border-radius:999px; padding:.05rem .5rem; transition:background .2s,color .2s;}
   .cat-btn.active .count{background:rgba(255,255,255,.22); color:#fff;}
   .post-card.is-hidden{display:none;}
+  .post-card[hidden]{display:none;}
   .tag.cat{background:var(--accent); color:#fff; padding:.2rem .75rem;}
   .post-card h3{font-family:var(--font-serif); font-weight:600; font-size:1.13rem; line-height:1.35; letter-spacing:-.01em;}
   .post-card h3 a:hover{color:var(--accent); transition:color .2s;}
@@ -269,7 +273,7 @@
     <div class="container">
       <p class="kicker">个人博客 · 持续更新</p>
       <h1>写点代码，记录思考，<br />分享<em>折腾</em>的乐趣。</h1>
-      <p class="sub">你好，我是 xiaosy。这里沉淀我学习前端、后端与工具折腾路上的经验与随笔。本站使用 Hugo 构建，纯静态托管于 GitHub Pages，打开快、零成本、无需服务器。</p>
+      <p class="sub">你好，我是 xiaosy。这里沉淀我学习前端、后端与工具折腾路上的经验与随笔。本站使用 Jekyll 构建，纯静态托管于 GitHub Pages，打开快、零成本、无需服务器。</p>
       <div class="hero-actions">
         <a class="btn btn-fill" href="#posts">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12l-7.5 7.5M21 12H3"/></svg>
@@ -278,7 +282,7 @@
         <a class="btn btn-ghost" href="#about">关于我</a>
       </div>
       <div class="hero-stats">
-        <div class="stat"><b>9</b><span>篇文章</span></div>
+        <div class="stat"><b>{{ site.posts.size }}</b><span>篇文章</span></div>
         <div class="stat"><b>2.1k</b><span>总阅读</span></div>
         <div class="stat"><b>5</b><span>分类</span></div>
         <div class="stat"><b>2026.08</b><span>最近更新</span></div>
@@ -290,11 +294,13 @@
   <div class="container">
     <section class="section reveal" style="padding-top:0">
       <div class="featured">
+        {% assign featured_post = site.posts | where: "featured", true | first %}
+        {% assign featured_category = featured_post.categories | first %}
         <div class="featured-body">
-          <span class="badge"><span class="pin"></span>置顶文章 · 运维</span>
-          <h3><a href="#">Hugo + GitHub Pages：十分钟上线你的第一个免费博客</a></h3>
-          <p>从安装 Hugo、挑选主题到配置 GitHub Actions 自动发布，一篇带你把博客部署到 GitHub Pages，之后只需要安心写 Markdown。</p>
-          <div class="meta-row"><span>2026.08.18</span><span class="sep"></span><span>8 分钟</span><span class="sep"></span><span>运维 · Hugo</span></div>
+          <span class="badge"><span class="pin"></span>置顶文章 · {{ featured_category }}</span>
+          <h3><a href="{{ featured_post.url | relative_url }}">{{ featured_post.title }}</a></h3>
+          <p>{{ featured_post.excerpt | strip_html | strip_newlines | truncate: 150 }}</p>
+          <div class="meta-row"><span>{{ featured_post.date | date: "%Y.%m.%d" }}</span><span class="sep"></span><span>{{ featured_post.read_time }}</span><span class="sep"></span><span>{{ featured_category }} · {{ featured_post.tags | first }}</span></div>
         </div>
         <div class="featured-cover">
           <span class="abs a"># 01</span>
@@ -314,8 +320,36 @@
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12l-7.5 7.5M21 12H3"/></svg>
         </a>
       </div>
-      <div class="cat-filter reveal" id="categories" role="group" aria-label="文章分类筛选"></div>
-      <div class="post-grid" id="postGrid"></div>
+      {% assign archive_posts = site.posts | where_exp: "post", "post.featured != true" %}
+      <div class="cat-filter reveal" id="categories" role="group" aria-label="文章分类筛选">
+        <button class="cat-btn active" data-cat="全部" aria-pressed="true" style="--catc:var(--accent)">
+          全部<span class="count">{{ archive_posts.size }}</span>
+        </button>
+        {% for category in site.data.categories %}
+          {% assign category_posts = archive_posts | where_exp: "post", "post.categories contains category.name" %}
+          <button class="cat-btn" data-cat="{{ category.name }}" aria-pressed="false" style="--catc:{{ category.color }}">
+            {{ category.name }}<span class="count">{{ category_posts.size }}</span>
+          </button>
+        {% endfor %}
+      </div>
+      <div class="post-grid" id="postGrid">
+        {% for post in archive_posts %}
+          {% assign post_category = post.categories | first %}
+          {% assign category_info = site.data.categories | where: "name", post_category | first %}
+          <article class="post-card reveal in" data-category="{{ post_category }}">
+            <div class="tag-row">
+              <span class="tag cat" style="background:{{ category_info.color }}">{{ post_category }}</span>
+              <span class="tag plain">文章</span>
+            </div>
+            <h3><a href="{{ post.url | relative_url }}">{{ post.title }}</a></h3>
+            <p>{{ post.excerpt | strip_html | strip_newlines | truncate: 120 }}</p>
+            <div class="meta-row"><span>{{ post.date | date: "%Y.%m.%d" }}</span><span class="sep"></span><span>{{ post.read_time }}</span></div>
+            <a class="read" href="{{ post.url | relative_url }}">继续阅读
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12l-7.5 7.5M21 12H3"/></svg>
+            </a>
+          </article>
+        {% endfor %}
+      </div>
     </div>
   </section>
 <!-- About -->
@@ -383,7 +417,7 @@
     </a>
     <a href="mailto:hello@example.com" aria-label="发邮件">联系</a>
   </div>
-  <p class="copy">© 2026 xiaosy · 由 Hugo 构建 · 托管于 GitHub Pages</p>
+  <p class="copy">© {{ site.time | date: "%Y" }} xiaosy · 由 Jekyll 构建 · 托管于 GitHub Pages</p>
 </footer>
 
 <script>
@@ -410,53 +444,17 @@
     root.getAttribute('data-theme') === 'dark' ? applyLight() : applyDark();
   });
 
-  /* ---------- 文章数据与分类筛选 ---------- */
-  const posts = [
-    {title:'Hugo + GitHub Pages：十分钟上线你的第一个免费博客', cat:'运维', date:'2026.08.18', read:'8 分钟', desc:'从安装 Hugo、挑选主题到配置 GitHub Actions 自动发布，一篇带你把博客部署到 GitHub Pages，之后只需安心写 Markdown。', featured:true},
-    {title:'从 NBlog 迁移到静态博客，我放弃服务器架构的 5 个理由', cat:'后端', date:'2026.08.10', read:'6 分钟', desc:'服务器、数据库、Redis——一个曾经的 Spring Boot 用户，为什么最终选择了纯静态方案，以及迁移时踩过的坑。'},
-    {title:'前端工程化踩坑实录：那些折磨我的构建问题', cat:'前端', date:'2026.07.28', read:'5 分钟', desc:'Vite、Webpack、缓存、环境变量……把三个月里遇到的构建报错和解决方案一次性整理给你。'},
-    {title:'Docker 部署指南：把本地服务一键搬到服务器', cat:'运维', date:'2026.07.15', read:'9 分钟', desc:'用 docker-compose 编排常见 Web 服务，端口、数据卷、日志轮转，一篇讲清楚部署时的坑。'},
-    {title:'我用 CPU 推理跑通了本地大模型，真香', cat:'AI 工具', date:'2026.07.02', read:'8 分钟', desc:'Ollama 装模型、量化参数、显存/内存调优，实测一台普通笔记本也能流畅玩的本地 AI。'},
-    {title:'我如何给博客添加阅读统计与评论区', cat:'运维', date:'2026.06.30', read:'7 分钟', desc:'不依赖后端，低成本接入访问统计和基于 GitHub Discussions 的评论系统，一篇讲全。'},
-    {title:'Spring Boot 接口设计：把 REST API 写得优雅些', cat:'后端', date:'2026.06.18', read:'10 分钟', desc:'统一的返回结构、参数校验、异常处理与分页约定，让前后端协作不再鸡同鸭讲。'},
-    {title:'Markdown 写作进阶：成为更高效的写作者', cat:'随笔', date:'2026.06.12', read:'4 分钟', desc:'表格、提示块、脚注、内嵌代码，以及 Typora / VS Code 里的实用快捷键与插件推荐。'},
-    {title:'2026 年中复盘：我在为什么而折腾', cat:'随笔', date:'2026.05.30', read:'6 分钟', desc:'半年过去，回顾一下学过的技术、写过的代码，以及那些「好像也没啥用但很有趣」的尝试。'}
-  ];
-
-  const cats = ['全部','前端','后端','运维','AI 工具','随笔'];
-  const catColors = { '前端':'#1D4ED8', '后端':'#6D28D9', '运维':'#047857', 'AI 工具':'#BE185D', '随笔':'#9A3412' };
-
-  const archivePosts = posts.filter(p => !p.featured);
-  function countFor(cat){ return cat === '全部' ? archivePosts.length : archivePosts.filter(p => p.cat === cat).length; }
-
   const filter = document.getElementById('categories');
-  filter.innerHTML = cats.map(c => `
-    <button class="cat-btn${c === '全部' ? ' active' : ''}" data-cat="${c}" aria-pressed="${c === '全部'}" style="--catc:${catColors[c] || '#C05621'}">
-      ${c}<span class="count">${countFor(c)}</span>
-    </button>`).join('');
-
-  const grid = document.getElementById('postGrid');
-  function render(cat){
-    const list = archivePosts.filter(p => cat === '全部' || p.cat === cat);
-    grid.innerHTML = list.map(p => `
-      <article class="post-card reveal in">
-        <div class="tag-row"><span class="tag cat" style="background:${catColors[p.cat]}">${p.cat}</span><span class="tag plain">文章</span></div>
-        <h3><a href="#">${p.title}</a></h3>
-        <p>${p.desc}</p>
-        <div class="meta-row"><span>${p.date}</span><span class="sep"></span><span>${p.read}</span></div>
-        <a class="read" href="#">继续阅读
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12l-7.5 7.5M21 12H3"/></svg>
-        </a>
-      </article>`).join('');
-  }
-  render('全部');
-
+  const cards = [...document.querySelectorAll('.post-card')];
   filter.addEventListener('click', e => {
     const b = e.target.closest('.cat-btn');
     if (!b) return;
     filter.querySelectorAll('.cat-btn').forEach(x => { x.classList.remove('active'); x.setAttribute('aria-pressed','false'); });
     b.classList.add('active'); b.setAttribute('aria-pressed','true');
-    render(b.dataset.cat);
+    cards.forEach(card => {
+      const visible = b.dataset.cat === '全部' || card.dataset.category === b.dataset.cat;
+      card.hidden = !visible;
+    });
   });
 
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches === false){

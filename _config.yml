@@ -1,0 +1,10 @@
+title: xiaosy · 个人博客
+description: xiaosy 的个人博客：记录代码、思考与折腾的乐趣。
+url: "https://yangqianjing.github.io"
+baseurl: "/Y"
+markdown: kramdown
+permalink: /:year/:month/:day/:basename/
+excerpt_separator: "<!-- more -->"
+exclude:
+  - README.md
+  - 1.txt

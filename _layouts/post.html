@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ page.title }} · {{ site.title }}</title>
+  <meta name="description" content="{{ page.excerpt | strip_html | strip_newlines | truncate: 150 }}" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ '/assets/css/post.css' | relative_url }}" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="logo" href="{{ '/' | relative_url }}" aria-label="返回博客首页">xiaosy<span class="dot">.</span></a>
+      <nav class="nav-links" aria-label="主导航">
+        <a href="{{ '/' | relative_url }}#posts">文章</a>
+        <a href="{{ '/' | relative_url }}#about">关于</a>
+        <a href="{{ '/' | relative_url }}#categories">分类</a>
+      </nav>
+      <button class="icon-btn" id="themeBtn" aria-label="切换深色模式">
+        <svg id="iconMoon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="article-shell">
+    <a class="back-link" href="{{ '/' | relative_url }}">← 返回首页</a>
+    <article>
+      <header class="article-header">
+        {% assign category = page.categories | first %}
+        {% assign category_info = site.data.categories | where: "name", category | first %}
+        <span class="article-category" style="--category-color:{{ category_info.color }}">{{ category }}</span>
+        <h1>{{ page.title }}</h1>
+        <div class="article-meta">
+          <span>{{ page.date | date: "%Y.%m.%d" }}</span>
+          <span class="sep"></span>
+          <span>{{ page.read_time }}</span>
+          {% if page.tags.size > 0 %}
+            <span class="sep"></span>
+            <span>{{ page.tags | join: " · " }}</span>
+          {% endif %}
+        </div>
+      </header>
+      <div class="article-content">
+        {{ content }}
+      </div>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <a href="{{ '/' | relative_url }}">返回首页</a>
+    <p>© {{ site.time | date: "%Y" }} xiaosy · 由 Jekyll 构建</p>
+  </footer>
+
+  <script>
+    const root = document.documentElement;
+    const saved = localStorage.getItem('theme');
+    if (saved === 'dark') root.setAttribute('data-theme', 'dark');
+    document.getElementById('themeBtn').addEventListener('click', () => {
+      const dark = root.getAttribute('data-theme') === 'dark';
+      dark ? root.removeAttribute('data-theme') : root.setAttribute('data-theme', 'dark');
+      localStorage.setItem('theme', dark ? 'light' : 'dark');
+    });
+  </script>
+</body>
+</html>
