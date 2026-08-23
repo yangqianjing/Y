@@ -47,3 +47,15 @@ button{font:inherit;cursor:pointer}
 .site-footer a{font-weight:600;color:var(--ink-2)}
 .site-footer p{margin-top:.6rem}
 @media (max-width:560px){.nav{gap:1rem}.nav-links{gap:.8rem;font-size:.86rem}.article-shell{padding-top:48px}.article-header{padding-top:2.2rem}}
+
+.article-content h2,.article-content h3,.article-content h4{font-family:var(--font-serif);line-height:1.35;margin:2.2rem 0 .8rem;scroll-margin-top:86px}
+.article-content h2{font-size:1.65rem}.article-content h3{font-size:1.25rem}.article-content h4{font-size:1.08rem}
+.toc{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:1.1rem 1.3rem;margin:1.6rem 0 0}
+.toc-title{display:flex;align-items:center;gap:.5rem;font-family:var(--font-serif);font-weight:600;font-size:1.05rem;color:var(--ink)}
+.toc-title::before{content:"";width:3px;height:1em;border-radius:2px;background:var(--accent)}
+.toc-list{list-style:none;margin:.8rem 0 0;padding:0}
+.toc-list ol{list-style:none;margin:.3rem 0 .2rem;padding-left:1.05rem;border-left:1px solid var(--border)}
+.toc-list li{margin:.22rem 0}
+.toc-link{display:inline-block;color:var(--ink-2);font-size:.92rem;line-height:1.55;border-radius:6px;padding:.08rem .4rem;margin-inline:-.4rem;transition:color .15s,background .15s}
+.toc-link:hover{color:var(--accent);background:var(--accent-soft)}
+.toc-link.active{color:var(--accent);font-weight:600}

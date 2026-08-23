@@ -43,6 +43,12 @@
           {% endif %}
         </div>
       </header>
+
+      <nav class="toc" id="toc" aria-label="文章目录" hidden>
+        <div class="toc-title">文章目录</div>
+        <ol class="toc-list" id="tocList"></ol>
+      </nav>
+
       <div class="article-content">
         {{ content }}
       </div>
@@ -63,6 +69,75 @@
       dark ? root.removeAttribute('data-theme') : root.setAttribute('data-theme', 'dark');
       localStorage.setItem('theme', dark ? 'light' : 'dark');
     });
+
+    // 文章目录（大纲）：扫描 h2/h3/h4 生成，点击锚点跳转，滚动时高亮当前章节
+    (() => {
+      const nav = document.getElementById('toc');
+      const content = document.querySelector('.article-content');
+      if (!nav || !content) return;
+      const headings = content.querySelectorAll('h2, h3, h4');
+      if (headings.length === 0) return;
+
+      const usedIds = new Set();
+      headings.forEach((heading, index) => {
+        if (!heading.id) {
+          const base = heading.textContent.trim().toLowerCase()
+            .replace(/\s+/g, '-')
+            .replace(/[^\w\u4e00-\u9fa5-]/g, '')
+            .replace(/-{2,}/g, '-')
+            .replace(/^-|-$/g, '');
+          heading.id = base || 'section-' + index;
+        }
+        if (usedIds.has(heading.id)) heading.id += '-' + index;
+        usedIds.add(heading.id);
+      });
+
+      const root = { children: [] };
+      const stack = [root];
+      headings.forEach((heading) => {
+        const level = Number(heading.tagName[1]);
+        while (stack.length > 1 && stack[stack.length - 1].level >= level) stack.pop();
+        const node = { level, id: heading.id, text: heading.textContent.trim(), children: [] };
+        stack[stack.length - 1].children.push(node);
+        stack.push(node);
+      });
+
+      const list = document.getElementById('tocList');
+      const fill = (nodes, container) => {
+        nodes.forEach((node) => {
+          const li = document.createElement('li');
+          const link = document.createElement('a');
+          link.href = '#' + node.id;
+          link.textContent = node.text;
+          link.className = 'toc-link';
+          li.appendChild(link);
+          container.appendChild(li);
+          if (node.children.length) {
+            const sub = document.createElement('ol');
+            li.appendChild(sub);
+            fill(node.children, sub);
+          }
+        });
+      };
+      fill(root.children, list);
+
+      const links = list.querySelectorAll('.toc-link');
+      let activeId = '';
+      const update = () => {
+        let current = headings[0];
+        for (const heading of headings) {
+          if (heading.getBoundingClientRect().top <= 96) current = heading;
+          else break;
+        }
+        if (current.id !== activeId) {
+          activeId = current.id;
+          links.forEach((link) => link.classList.toggle('active', link.getAttribute('href') === '#' + activeId));
+        }
+      };
+      window.addEventListener('scroll', update, { passive: true });
+      update();
+      nav.hidden = false;
+    })();
   </script>
 </body>
 </html>
