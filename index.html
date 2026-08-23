@@ -295,13 +295,15 @@ layout: null
     <section class="section reveal" style="padding-top:0">
       <div class="featured">
         {% assign featured_post = site.posts | where: "featured", true | first %}
-        {% assign featured_category = featured_post.categories | first %}
-        <div class="featured-body">
-          <span class="badge"><span class="pin"></span>置顶文章 · {{ featured_category }}</span>
-          <h3><a href="{{ featured_post.url | relative_url }}">{{ featured_post.title }}</a></h3>
-          <p>{{ featured_post.excerpt | strip_html | strip_newlines | truncate: 150 }}</p>
-          <div class="meta-row"><span>{{ featured_post.date | date: "%Y.%m.%d" }}</span><span class="sep"></span><span>{{ featured_post.read_time }}</span><span class="sep"></span><span>{{ featured_category }} · {{ featured_post.tags | first }}</span></div>
-        </div>
+        {% if featured_post %}
+          {% assign featured_category = featured_post.categories | first %}
+          <div class="featured-body">
+            <span class="badge"><span class="pin"></span>置顶文章 · {{ featured_category }}</span>
+            <h3><a href="{{ featured_post.url | relative_url }}">{{ featured_post.title }}</a></h3>
+            <p>{{ featured_post.excerpt | strip_html | strip_newlines | truncate: 150 }}</p>
+            <div class="meta-row"><span>{{ featured_post.date | date: "%Y.%m.%d" }}</span><span class="sep"></span><span>{{ featured_post.read_time }}</span><span class="sep"></span><span>{{ featured_category }} · {{ featured_post.tags | first }}</span></div>
+          </div>
+        {% endif %}
         <div class="featured-cover">
           <span class="abs a"># 01</span>
           <span class="word">折腾</span>
@@ -320,34 +322,48 @@ layout: null
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12l-7.5 7.5M21 12H3"/></svg>
         </a>
       </div>
-      {% assign archive_posts = site.posts | where_exp: "post", "post.featured != true" %}
+      {% assign archive_count = 0 %}
+      {% for post in site.posts %}
+        {% unless post.featured %}
+          {% assign archive_count = archive_count | plus: 1 %}
+        {% endunless %}
+      {% endfor %}
       <div class="cat-filter reveal" id="categories" role="group" aria-label="文章分类筛选">
         <button class="cat-btn active" data-cat="全部" aria-pressed="true" style="--catc:var(--accent)">
-          全部<span class="count">{{ archive_posts.size }}</span>
+          全部<span class="count">{{ archive_count }}</span>
         </button>
         {% for category in site.data.categories %}
-          {% assign category_posts = archive_posts | where_exp: "post", "post.categories contains category.name" %}
+          {% assign category_count = 0 %}
+          {% for post in site.posts %}
+            {% unless post.featured %}
+              {% if post.categories contains category.name %}
+                {% assign category_count = category_count | plus: 1 %}
+              {% endif %}
+            {% endunless %}
+          {% endfor %}
           <button class="cat-btn" data-cat="{{ category.name }}" aria-pressed="false" style="--catc:{{ category.color }}">
-            {{ category.name }}<span class="count">{{ category_posts.size }}</span>
+            {{ category.name }}<span class="count">{{ category_count }}</span>
           </button>
         {% endfor %}
       </div>
       <div class="post-grid" id="postGrid">
-        {% for post in archive_posts %}
-          {% assign post_category = post.categories | first %}
-          {% assign category_info = site.data.categories | where: "name", post_category | first %}
-          <article class="post-card reveal in" data-category="{{ post_category }}">
-            <div class="tag-row">
-              <span class="tag cat" style="background:{{ category_info.color }}">{{ post_category }}</span>
-              <span class="tag plain">文章</span>
-            </div>
-            <h3><a href="{{ post.url | relative_url }}">{{ post.title }}</a></h3>
-            <p>{{ post.excerpt | strip_html | strip_newlines | truncate: 120 }}</p>
-            <div class="meta-row"><span>{{ post.date | date: "%Y.%m.%d" }}</span><span class="sep"></span><span>{{ post.read_time }}</span></div>
-            <a class="read" href="{{ post.url | relative_url }}">继续阅读
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12l-7.5 7.5M21 12H3"/></svg>
-            </a>
-          </article>
+        {% for post in site.posts %}
+          {% unless post.featured %}
+            {% assign post_category = post.categories | first %}
+            {% assign category_info = site.data.categories | where: "name", post_category | first %}
+            <article class="post-card reveal in" data-category="{{ post_category }}">
+              <div class="tag-row">
+                <span class="tag cat" style="background:{{ category_info.color }}">{{ post_category }}</span>
+                <span class="tag plain">文章</span>
+              </div>
+              <h3><a href="{{ post.url | relative_url }}">{{ post.title }}</a></h3>
+              <p>{{ post.excerpt | strip_html | strip_newlines | truncate: 120 }}</p>
+              <div class="meta-row"><span>{{ post.date | date: "%Y.%m.%d" }}</span><span class="sep"></span><span>{{ post.read_time }}</span></div>
+              <a class="read" href="{{ post.url | relative_url }}">继续阅读
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12l-7.5 7.5M21 12H3"/></svg>
+              </a>
+            </article>
+          {% endunless %}
         {% endfor %}
       </div>
     </div>
