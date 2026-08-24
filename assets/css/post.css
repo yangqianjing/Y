@@ -78,10 +78,10 @@ button{font:inherit;cursor:pointer}
 }
 
 /* 宽屏时整体左移目录与正文，避免两栏之间出现过大的空白。 */
-@media (min-width:1025px){
+@media (min-width:1144px){
   .article-layout{
     position:relative;
-    left:min(0px,calc(2rem - (100vw - 1080px) / 2));
+    left:calc(572px - 50vw);
   }
   .toc-sidebar{transform:none}
 }
