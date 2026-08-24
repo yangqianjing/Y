@@ -1,7 +1,7 @@
 title: xiaosy · 个人博客
 description: xiaosy 的个人博客：记录代码、思考与折腾的乐趣。
-url: "https://yangqianjing.github.io"
-baseurl: "/Y"
+url: "https://yqj.sdgdfgdf.xyz"
+baseurl: ""
 markdown: kramdown
 permalink: /:year/:month/:day/:title/
 excerpt_separator: "<!-- more -->"
