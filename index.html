@@ -163,6 +163,8 @@ layout: null
   .tag{font-size:.74rem; font-weight:600; color:var(--accent-ink); background:var(--accent-soft); border-radius:999px; padding:.18rem .7rem;}
   .tag.plain{color:var(--ink-2); background:var(--surface-2);}
   .cat-filter{display:flex; flex-wrap:wrap; gap:.6rem; margin-bottom:2rem;}
+  .subcat-filter{margin-top:-1.2rem; margin-bottom:2rem; padding:.7rem .9rem; background:var(--surface-2); border:1px solid var(--border); border-radius:14px;}
+  .subcat-filter .cat-btn{min-height:38px; padding:.4rem .85rem; font-size:.82rem;}
   .cat-btn{border:1px solid var(--border); background:var(--surface); color:var(--ink-2); min-height:44px; font-size:.88rem; font-weight:600; border-radius:999px; padding:.55rem 1.05rem; display:inline-flex; align-items:center; gap:.45rem; cursor:pointer; transition:all .2s;}
   .cat-btn:hover{border-color:var(--catc, var(--accent)); color:var(--catc, var(--accent)); transform:translateY(-1px);}
   .cat-btn.active{background:var(--catc, var(--accent)); border-color:var(--catc, var(--accent)); color:#fff; box-shadow:0 4px 12px color-mix(in srgb, var(--catc, var(--accent)) 28%, transparent);}
@@ -283,8 +285,7 @@ layout: null
       </div>
       <div class="hero-stats">
         <div class="stat"><b>{{ site.posts.size }}</b><span>篇文章</span></div>
-        <div class="stat"><b>2.1k</b><span>总阅读</span></div>
-        <div class="stat"><b>5</b><span>分类</span></div>
+        <div class="stat"><b>{{ site.data.categories.size }}</b><span>分类</span></div>
         <div class="stat"><b>2026.08</b><span>最近更新</span></div>
       </div>
     </div>
@@ -298,10 +299,10 @@ layout: null
         {% if featured_post %}
           {% assign featured_category = featured_post.categories | first %}
           <div class="featured-body">
-            <span class="badge"><span class="pin"></span>置顶文章 · {{ featured_category }}</span>
+            <span class="badge"><span class="pin"></span>置顶文章 · {{ featured_category }}{% if featured_post.subcategory %} / {{ featured_post.subcategory }}{% endif %}</span>
             <h3><a href="{{ featured_post.url | relative_url }}">{{ featured_post.title }}</a></h3>
             <p>{{ featured_post.excerpt | strip_html | strip_newlines | truncate: 150 }}</p>
-            <div class="meta-row"><span>{{ featured_post.date | date: "%Y.%m.%d" }}</span><span class="sep"></span><span>{{ featured_post.read_time }}</span><span class="sep"></span><span>{{ featured_category }} · {{ featured_post.tags | first }}</span></div>
+            <div class="meta-row"><span>{{ featured_post.date | date: "%Y.%m.%d" }}</span><span class="sep"></span><span>{{ featured_category }}{% if featured_post.subcategory %} · {{ featured_post.subcategory }}{% endif %}{% if featured_post.tags.size > 0 %} · {{ featured_post.tags | first }}{% endif %}</span></div>
           </div>
         {% endif %}
         <div class="featured-cover">
@@ -346,19 +347,20 @@ layout: null
           </button>
         {% endfor %}
       </div>
+      <div class="cat-filter subcat-filter reveal" id="subcategories" role="group" aria-label="文章子分类筛选" hidden></div>
       <div class="post-grid" id="postGrid">
         {% for post in site.posts %}
           {% unless post.featured %}
             {% assign post_category = post.categories | first %}
             {% assign category_info = site.data.categories | where: "name", post_category | first %}
-            <article class="post-card reveal in" data-category="{{ post_category }}">
+            <article class="post-card reveal in" data-category="{{ post_category | escape }}" data-subcategory="{% if post.subcategory %}{{ post.subcategory | escape }}{% endif %}">
               <div class="tag-row">
                 <span class="tag cat" style="background:{{ category_info.color }}">{{ post_category }}</span>
-                <span class="tag plain">文章</span>
+                {% if post.subcategory %}<span class="tag plain">{{ post.subcategory }}</span>{% endif %}
               </div>
               <h3><a href="{{ post.url | relative_url }}">{{ post.title }}</a></h3>
               <p>{{ post.excerpt | strip_html | strip_newlines | truncate: 120 }}</p>
-              <div class="meta-row"><span>{{ post.date | date: "%Y.%m.%d" }}</span><span class="sep"></span><span>{{ post.read_time }}</span></div>
+              <div class="meta-row"><span>{{ post.date | date: "%Y.%m.%d" }}</span>{% if post.tags.size > 0 %}<span class="sep"></span><span>{{ post.tags | first }}</span>{% endif %}</div>
               <a class="read" href="{{ post.url | relative_url }}">继续阅读
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12l-7.5 7.5M21 12H3"/></svg>
               </a>
@@ -461,17 +463,73 @@ layout: null
   });
 
   const filter = document.getElementById('categories');
+  const subFilter = document.getElementById('subcategories');
   const cards = [...document.querySelectorAll('.post-card')];
-  filter.addEventListener('click', e => {
-    const b = e.target.closest('.cat-btn');
-    if (!b) return;
-    filter.querySelectorAll('.cat-btn').forEach(x => { x.classList.remove('active'); x.setAttribute('aria-pressed','false'); });
-    b.classList.add('active'); b.setAttribute('aria-pressed','true');
-    cards.forEach(card => {
-      const visible = b.dataset.cat === '全部' || card.dataset.category === b.dataset.cat;
-      card.hidden = !visible;
+  let selectedCategory = '全部';
+  let selectedSubcategory = '全部';
+
+  const unique = values => [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  const matches = (card, category, subcategory) =>
+    (category === '全部' || card.dataset.category === category) &&
+    (subcategory === '全部' || card.dataset.subcategory === subcategory);
+  const count = (category, subcategory) => cards.filter(card => matches(card, category, subcategory)).length;
+  const setActive = (container, attribute, value) => {
+    container.querySelectorAll('.cat-btn').forEach(button => {
+      const active = button.dataset[attribute] === value;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
     });
+  };
+  const makeButton = (label, value, attribute, number, active) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'cat-btn';
+    button.dataset[attribute] = value;
+    button.setAttribute('aria-pressed', String(active));
+    if (active) button.classList.add('active');
+    const text = document.createTextNode(label);
+    const badge = document.createElement('span');
+    badge.className = 'count';
+    badge.textContent = number;
+    button.append(text, badge);
+    return button;
+  };
+  const renderSubcategories = () => {
+    if (!subFilter) return;
+    const values = unique(cards
+      .filter(card => selectedCategory === '全部' || card.dataset.category === selectedCategory)
+      .map(card => card.dataset.subcategory));
+    subFilter.replaceChildren();
+    if (values.length === 0) {
+      selectedSubcategory = '全部';
+      subFilter.hidden = true;
+      return;
+    }
+    subFilter.hidden = false;
+    subFilter.append(makeButton('全部子分类', '全部', 'subcat', count(selectedCategory, '全部'), selectedSubcategory === '全部'));
+    values.forEach(value => subFilter.append(makeButton(value, value, 'subcat', count(selectedCategory, value), selectedSubcategory === value)));
+  };
+  const renderCards = () => {
+    cards.forEach(card => { card.hidden = !matches(card, selectedCategory, selectedSubcategory); });
+  };
+  filter.addEventListener('click', event => {
+    const button = event.target.closest('.cat-btn');
+    if (!button) return;
+    selectedCategory = button.dataset.cat;
+    selectedSubcategory = '全部';
+    setActive(filter, 'cat', selectedCategory);
+    renderSubcategories();
+    renderCards();
   });
+  subFilter.addEventListener('click', event => {
+    const button = event.target.closest('.cat-btn');
+    if (!button) return;
+    selectedSubcategory = button.dataset.subcat;
+    setActive(subFilter, 'subcat', selectedSubcategory);
+    renderCards();
+  });
+  renderSubcategories();
+  renderCards();
 
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches === false){
     const io = new IntersectionObserver(entries => {

@@ -4,7 +4,7 @@ title: "Markdown 写作进阶：成为更高效的写作者"
 date: 2026-06-12
 categories: ["随笔"]
 tags: ["Markdown", "写作"]
-read_time: "4 分钟"
+subcategory: "写作"
 ---
 
 Markdown 的价值不只是语法简单，而是让内容和排版尽量解耦。

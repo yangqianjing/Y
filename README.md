@@ -27,7 +27,7 @@ title: "你的文章标题"
 date: 2026-08-23
 categories: ["运维"]
 tags: ["Docker", "部署"]
-read_time: "6 分钟"
+subcategory: "Docker"
 ---
 ```
 
@@ -36,6 +36,16 @@ read_time: "6 分钟"
 ```text
 前端 / 后端 / 运维 / AI 工具 / 随笔
 ```
+
+文章可以使用 `subcategory` 指定一级分类下的子分类，例如：
+
+```yaml
+categories: ["运维"]
+subcategory: "MySQL"
+tags: ["数据库", "SQL"]
+```
+
+首页会根据文章的 `subcategory` 自动生成子分类筛选。未填写 `subcategory` 的文章不会出现在子分类筛选中。
 
 写完后提交并推送：
 

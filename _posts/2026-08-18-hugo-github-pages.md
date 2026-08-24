@@ -4,7 +4,7 @@ title: "Hugo + GitHub Pages：十分钟上线你的第一个免费博客"
 date: 2026-08-18
 categories: ["运维"]
 tags: ["GitHub Pages", "部署"]
-read_time: "8 分钟"
+subcategory: "GitHub Pages"
 featured: true
 ---
 

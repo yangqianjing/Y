@@ -44,7 +44,7 @@
         <div class="article-meta">
           <span>{{ page.date | date: "%Y.%m.%d" }}</span>
           <span class="sep"></span>
-          <span>{{ page.read_time }}</span>
+          <span>{{ page.categories | first }}{% if page.subcategory %} · {{ page.subcategory }}{% endif %}</span>
           {% if page.tags.size > 0 %}
             <span class="sep"></span>
             <span>{{ page.tags | join: " · " }}</span>

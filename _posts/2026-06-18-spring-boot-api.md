@@ -4,7 +4,7 @@ title: "Spring Boot 接口设计：把 REST API 写得优雅些"
 date: 2026-06-18
 categories: ["后端"]
 tags: ["Spring Boot", "REST API"]
-read_time: "10 分钟"
+subcategory: "Spring Boot"
 ---
 
 统一的返回结构、参数校验、异常处理与分页约定，能让前后端协作更稳定。
