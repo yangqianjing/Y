@@ -77,7 +77,11 @@ button{font:inherit;cursor:pointer}
   .toc.open{display:block}
 }
 
-/* 宽屏时把目录向视口左侧展开，正文仍保持原来的阅读位置。 */
-@media (min-width:1200px){
-  .toc-sidebar{transform:translateX(min(0px,calc(2rem - (100vw - 1080px) / 2)))}
+/* 宽屏时整体左移目录与正文，避免两栏之间出现过大的空白。 */
+@media (min-width:1025px){
+  .article-layout{
+    position:relative;
+    left:min(0px,calc(2rem - (100vw - 1080px) / 2));
+  }
+  .toc-sidebar{transform:none}
 }
