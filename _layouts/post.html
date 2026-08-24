@@ -28,6 +28,13 @@
   <main class="article-shell">
     <a class="back-link" href="{{ '/' | relative_url }}">← 返回首页</a>
     <div class="article-layout">
+    <aside class="toc-sidebar">
+      <button class="toc-toggle" id="tocToggle" type="button" aria-expanded="false" hidden>目录</button>
+      <nav class="toc" id="toc" aria-label="文章目录" hidden>
+        <div class="toc-title">文章目录</div>
+        <ol class="toc-list" id="tocList"></ol>
+      </nav>
+    </aside>
     <article>
       <header class="article-header">
         {% assign category = page.categories | first %}
@@ -50,13 +57,7 @@
       </div>
     </article>
 
-    <aside class="toc-sidebar">
-      <button class="toc-toggle" id="tocToggle" type="button" aria-expanded="false" hidden>目录</button>
-      <nav class="toc" id="toc" aria-label="文章目录" hidden>
-        <div class="toc-title">文章目录</div>
-        <ol class="toc-list" id="tocList"></ol>
-      </nav>
-    </aside>
+
     </div>
   </main>
 
