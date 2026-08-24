@@ -5,6 +5,16 @@ baseurl: "/Y"
 markdown: kramdown
 permalink: /:year/:month/:day/:title/
 excerpt_separator: "<!-- more -->"
+collections:
+  notes:
+    output: true
+    permalink: /notes/:title/
+defaults:
+  - scope:
+      path: ""
+      type: notes
+    values:
+      layout: post
 exclude:
   - README.md
   - 1.txt

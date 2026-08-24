@@ -5,17 +5,26 @@
 ## 文件
 
 - `index.html`：博客首页，包含文章归档、分类筛选、明暗主题切换和响应式布局。
-- `_posts/`：博客笔记，使用 Markdown 编写。
+- `_posts/`：旧文章目录，使用 Jekyll 默认的日期文件名和链接规则。
+- `_notes/`：新文章目录，文件名可以自定义，文章会使用 `/notes/文件名/` 的链接。
 - `_layouts/post.html`：文章详情页模板。
 - `_data/categories.yml`：分类名称和颜色。
 - `assets/css/post.css`：文章页样式。
 
 ## 新增笔记
 
-在 `_posts/` 中创建文件，文件名格式为：
+旧文章继续在 `_posts/` 中创建，文件名格式为：
 
 ```text
 YYYY-MM-DD-文章英文标题.md
+```
+
+新文章请放在 `_notes/` 中，文件名可以自定义，例如：
+
+```text
+_notes/kafka.md
+_notes/mysql-notes.md
+_notes/我的 Kubernetes 笔记.md
 ```
 
 文章顶部填写 Front Matter：
@@ -30,6 +39,8 @@ tags: ["Docker", "部署"]
 subcategory: "Docker"
 ---
 ```
+
+新文章的 `date` 字段决定文章页面显示的日期和首页排序；文件名只决定文章 URL。例如 `_notes/kafka.md` 会对应 `/notes/kafka/`。
 
 分类目前支持：
 
@@ -55,7 +66,7 @@ git commit -m "Add a new note"
 git push origin main
 ```
 
-首页会自动读取 `_posts` 中的文章，分类数量也会自动更新，不需要手动修改 `index.html`。
+首页会自动合并读取 `_posts` 和 `_notes` 中的文章，分类数量也会自动更新，不需要手动修改 `index.html`。
 
 ## 部署到 GitHub Pages
 

@@ -270,6 +270,8 @@ layout: null
 </header>
 
 <main>
+  {% assign all_posts = site.posts | concat: site.notes | sort: "date" | reverse %}
+  {% assign latest_post = all_posts | first %}
   <!-- Hero -->
   <section class="hero">
     <div class="container">
@@ -284,9 +286,9 @@ layout: null
         <a class="btn btn-ghost" href="#about">关于我</a>
       </div>
       <div class="hero-stats">
-        <div class="stat"><b>{{ site.posts.size }}</b><span>篇文章</span></div>
+        <div class="stat"><b>{{ all_posts.size }}</b><span>篇文章</span></div>
         <div class="stat"><b>{{ site.data.categories.size }}</b><span>分类</span></div>
-        <div class="stat"><b>2026.08</b><span>最近更新</span></div>
+        <div class="stat"><b>{% if latest_post %}{{ latest_post.date | date: "%Y.%m" }}{% endif %}</b><span>最近更新</span></div>
       </div>
     </div>
   </section>
@@ -295,7 +297,7 @@ layout: null
   <div class="container">
     <section class="section reveal" style="padding-top:0">
       <div class="featured">
-        {% assign featured_post = site.posts | where: "featured", true | first %}
+        {% assign featured_post = all_posts | where: "featured", true | first %}
         {% if featured_post %}
           {% assign featured_category = featured_post.categories | first %}
           <div class="featured-body">
@@ -324,7 +326,7 @@ layout: null
         </a>
       </div>
       {% assign archive_count = 0 %}
-      {% for post in site.posts %}
+      {% for post in all_posts %}
         {% unless post.featured %}
           {% assign archive_count = archive_count | plus: 1 %}
         {% endunless %}
@@ -335,7 +337,7 @@ layout: null
         </button>
         {% for category in site.data.categories %}
           {% assign category_count = 0 %}
-          {% for post in site.posts %}
+          {% for post in all_posts %}
             {% unless post.featured %}
               {% if post.categories contains category.name %}
                 {% assign category_count = category_count | plus: 1 %}
@@ -349,7 +351,7 @@ layout: null
       </div>
       <div class="cat-filter subcat-filter reveal" id="subcategories" role="group" aria-label="文章子分类筛选" hidden></div>
       <div class="post-grid" id="postGrid">
-        {% for post in site.posts %}
+        {% for post in all_posts %}
           {% unless post.featured %}
             {% assign post_category = post.categories | first %}
             {% assign category_info = site.data.categories | where: "name", post_category | first %}
