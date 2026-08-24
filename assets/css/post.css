@@ -76,3 +76,8 @@ button{font:inherit;cursor:pointer}
   .toc{position:static;max-height:none;display:none;margin:0 0 .8rem}
   .toc.open{display:block}
 }
+
+/* 宽屏时把目录向视口左侧展开，正文仍保持原来的阅读位置。 */
+@media (min-width:1200px){
+  .toc-sidebar{transform:translateX(min(0px,calc(2rem - (100vw - 1080px) / 2)))}
+}
