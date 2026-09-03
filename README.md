@@ -1,78 +1,45 @@
-# Y Blog
+# iCost · Web / Electron 桌面版
 
-这是一个使用 Jekyll 构建、可直接部署到 GitHub Pages 的个人博客。
+参照 iCost（iPad 版）界面制作的记账应用。纯前端实现，无需联网、无需登录，数据保存在本地。
 
-## 文件
+- **网页版**：直接双击打开 `index.html` 即可运行
+- **Windows 桌面版（exe）**：推送到 GitHub 后自动打包，见下文
 
-- `index.html`：博客首页，包含文章归档、分类筛选、明暗主题切换和响应式布局。
-- `_posts/`：旧文章目录，使用 Jekyll 默认的日期文件名和链接规则。
-- `_notes/`：新文章目录，文件名可以自定义，文章会使用 `/notes/文件名/` 的链接。
-- `_layouts/post.html`：文章详情页模板。
-- `_data/categories.yml`：分类名称和颜色。
-- `assets/css/post.css`：文章页样式。
+## 功能
 
-## 新增笔记
+- **账本**：汇总卡片、支出统计图（支出/收入/结余）、净资产趋势图、支出分类环形图、日历（按日收支）、账单列表
+- **统计**：按周/按月统计、收支统计、报销统计、流转统计、收入统计图、周账单汇总、收入分类详情、总资产趋势图
+- **资产**：净资产总览、资金/信用/充值账户分组、账户账单详情
+- **存钱**（深色主题）：定额/灵活存钱、存钱计划进度、存钱卡片打卡
+- **搜索**：关键词过滤账单，实时汇总支出/收入/结余/优惠
+- **记一笔**：数字键盘记账，可选子分类（支持在主分类下新建，如“交通”下新建“公交/地铁”）、可选记账日期时间（滚轮选择，精确到秒），账单、图表、日历实时更新
+- **设置**：月预算、数据导出（JSON）、重置示例数据
 
-旧文章继续在 `_posts/` 中创建，文件名格式为：
+## 自动打包 Windows EXE
 
-```text
-YYYY-MM-DD-文章英文标题.md
-```
+推送到 `main` 分支后，GitHub Actions 会自动在 Windows 环境构建 exe：
 
-新文章请放在 `_notes/` 中，文件名可以自定义，例如：
-
-```text
-_notes/kafka.md
-_notes/mysql-notes.md
-_notes/我的 Kubernetes 笔记.md
-```
-
-文章顶部填写 Front Matter：
-
-```yaml
----
-layout: post
-title: "你的文章标题"
-date: 2026-08-23
-categories: ["运维"]
-tags: ["Docker", "部署"]
-subcategory: "Docker"
----
-```
-
-新文章的 `date` 字段决定文章页面显示的日期和首页排序；文件名只决定文章 URL。例如 `_notes/kafka.md` 会对应 `/notes/kafka/`。
-
-分类目前支持：
-
-```text
-前端 / 后端 / 运维 / AI 工具 / 随笔
-```
-
-文章可以使用 `subcategory` 指定一级分类下的子分类，例如：
-
-```yaml
-categories: ["运维"]
-subcategory: "MySQL"
-tags: ["数据库", "SQL"]
-```
-
-首页会根据文章的 `subcategory` 自动生成子分类筛选。未填写 `subcategory` 的文章不会出现在子分类筛选中。
-
-写完后提交并推送：
+1. 打开仓库的 **Actions** 页，进入 **Build Windows EXE** 工作流
+2. 构建完成后在该次运行页面底部的 **Artifacts** 下载 `iCost-Windows`（含安装版和便携版 exe）
+3. 需要发布正式版时，打一个版本标签推送：
 
 ```powershell
-git add .
-git commit -m "Add a new note"
-git push origin main
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
-首页会自动合并读取 `_posts` 和 `_notes` 中的文章，分类数量也会自动更新，不需要手动修改 `index.html`。
+exe 会自动发布到仓库的 **Releases** 页面。
 
-## 部署到 GitHub Pages
+## 本地开发
 
-1. 将本仓库推送到 GitHub。
-2. 打开仓库的 `Settings`。
-3. 进入 `Pages`。
-4. 在 `Build and deployment` 中选择 `Deploy from a branch`。
-5. 分支选择 `main`，目录选择 `/root`。
-6. 保存后等待 GitHub Pages 自动发布。
+```powershell
+npm install    # 安装依赖（Electron）
+npm start      # 启动桌面版
+npm run dist   # 本地打包 exe（输出到 dist/）
+```
+
+## 说明
+
+- 内置数据为示例账单（2024 年 5 月）
+- 新记账单保存在本地（浏览器 localStorage / Electron 用户数据），设置页可导出 JSON 备份或重置
+- 图表为原生 SVG 实现，无第三方运行时依赖

@@ -1,0 +1,41 @@
+{
+  "name": "icost-app",
+  "version": "1.0.0",
+  "description": "iCost 记账 · Electron 桌面版",
+  "main": "main.js",
+  "author": "yangqianjing",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^31.3.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.yangqianjing.icost",
+    "productName": "iCost",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "index.html",
+      "styles.css",
+      "data.js",
+      "app.js"
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  }
+}

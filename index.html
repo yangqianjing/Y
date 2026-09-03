@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iCost · Web</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app" class="app">
+  <aside class="sidebar">
+    <div class="avatar-wrap">
+      <div class="avatar">🐱</div>
+    </div>
+    <nav class="side-nav" id="side-nav">
+      <button class="nav-item active" data-page="ledger"><span class="nav-icon">📒</span><span class="nav-label">账本</span></button>
+      <button class="nav-item" data-page="assets"><span class="nav-icon">🗂️</span><span class="nav-label">资产</span></button>
+      <button class="nav-item" data-page="savings"><span class="nav-icon">🐷</span><span class="nav-label">存钱</span></button>
+      <button class="nav-item" data-page="stats"><span class="nav-icon">📊</span><span class="nav-label">统计</span></button>
+      <button class="nav-item" data-page="settings"><span class="nav-icon">⚙️</span><span class="nav-label">设置</span></button>
+    </nav>
+    <div class="side-bottom">
+      <button class="side-icon-btn" id="sync-btn" title="同步">🔄</button>
+      <button class="side-icon-btn" id="help-btn" title="帮助">❓</button>
+    </div>
+  </aside>
+  <main class="main">
+
+    <section id="page-ledger" class="page light active">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="book-chip" id="book-chip">📒 联认账本_二 <span class="chev">▾</span></button>
+        </div>
+        <div class="topbar-title">账本</div>
+        <div class="topbar-right">
+          <button class="pill-btn" id="open-search">🔍 输入关键词</button>
+          <button class="pill-btn" id="goto-month-stats">按月统计</button>
+        </div>
+      </header>
+      <div class="ledger-grid">
+        <div class="col-left">
+          <div class="summary-row" id="summary-cards"></div>
+          <div class="ledger-charts">
+            <div class="col-main">
+              <div class="card chart-card">
+                <div class="card-head">
+                  <span class="card-ico yellow">📈</span><b>支出统计图</b>
+                  <span class="head-meta" id="expense-peak"></span>
+                  <span class="head-ico">📊</span>
+                </div>
+                <div class="seg-tabs" id="ledger-chart-tabs">
+                  <button class="seg active" data-mode="expense">支出</button>
+                  <button class="seg" data-mode="income">收入</button>
+                  <button class="seg" data-mode="balance">结余</button>
+                </div>
+                <div id="ledger-bar-chart" class="chart-box"></div>
+              </div>
+              <div class="card chart-card">
+                <div class="card-head">
+                  <span class="card-ico yellow">📈</span><b>净资产趋势图</b>
+                  <span class="head-meta" id="networth-meta"></span>
+                </div>
+                <div class="seg-tabs" id="networth-tabs">
+                  <button class="seg active" data-mode="net">净资产</button>
+                  <button class="seg" data-mode="total">总资产</button>
+                  <button class="seg" data-mode="debt">总负债</button>
+                </div>
+                <div id="networth-chart" class="chart-box"></div>
+              </div>
+            </div>
+            <div class="col-mid">
+              <div class="card">
+                <div class="card-head">
+                  <span class="card-ico yellow">🍩</span><b>支出分类详情</b>
+                  <button class="mini-pill">一级分类 ⌄</button>
+                </div>
+                <div class="donut-wrap"><div id="cat-donut"></div></div>
+                <div class="seg-tabs" id="cat-tabs">
+                  <button class="seg active" data-mode="expense">支出</button>
+                  <button class="seg" data-mode="income">收入</button>
+                </div>
+                <div class="cat-list" id="cat-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-right">
+          <div class="card calendar-card">
+            <div class="cal-head">
+              <button class="round-btn" id="cal-prev">◀</button>
+              <b id="cal-title">2024年5月</b>
+              <button class="round-btn" id="cal-next">▶</button>
+            </div>
+            <div class="cal-week">
+              <span>周日</span><span>周一</span><span>周二</span><span>周三</span><span>周四</span><span>周五</span><span>周六</span>
+            </div>
+            <div class="cal-grid" id="cal-grid"></div>
+          </div>
+          <div class="card txn-card">
+            <div id="txn-list"></div>
+          </div>
+        </div>
+      </div>
+      <button class="fab" id="fab-add">＋</button>
+    </section>
+
+    <section id="page-stats" class="page light">
+      <header class="topbar">
+        <div class="topbar-left"></div>
+        <div class="topbar-title">统计</div>
+        <div class="topbar-right"></div>
+      </header>
+      <div class="stats-controls">
+        <button class="pill-btn blue-fill" id="stats-mode-btn">按周统计</button>
+        <div class="range-nav">
+          <button class="round-btn small" id="stats-prev">◀</button>
+          <b id="stats-range-title">2024年5月26日 ~ 6月1日</b>
+          <button class="round-btn small" id="stats-next">▶</button>
+        </div>
+        <button class="pill-btn" id="stats-filter">✂</button>
+      </div>
+      <div class="stats-grid">
+        <div class="stats-col">
+          <div class="card">
+            <div class="card-head"><span class="card-ico yellow">🧮</span><b>收支统计</b></div>
+            <div class="stat-tiles" id="income-tiles"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-ico yellow">🍩</span><b>收入分类详情</b><button class="mini-pill">一级分类 ⌄</button></div>
+            <div class="donut-wrap"><div id="income-donut"></div></div>
+            <div class="seg-tabs" id="income-donut-tabs">
+              <button class="seg" data-mode="expense">支出</button>
+              <button class="seg active" data-mode="income">收入</button>
+            </div>
+            <div class="cat-list" id="income-cat-list"></div>
+          </div>
+        </div>
+        <div class="stats-col">
+          <div class="card">
+            <div class="card-head"><span class="card-ico yellow">🧾</span><b>报销统计</b></div>
+            <div class="stat-tiles" id="reimb-tiles"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-ico yellow">📈</span><b>收入统计图</b><span class="head-meta">平均值: <span id="stats-avg"></span></span></div>
+            <div class="seg-tabs" id="stats-line-tabs">
+              <button class="seg" data-mode="expense">支出</button>
+              <button class="seg active" data-mode="income">收入</button>
+              <button class="seg" data-mode="balance">结余</button>
+            </div>
+            <div id="stats-line-chart" class="chart-box small"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-ico yellow">📅</span><b>周账单汇总 (CNY)</b></div>
+            <table class="sum-table" id="week-table"></table>
+          </div>
+        </div>
+        <div class="stats-col">
+          <div class="card">
+            <div class="card-head"><span class="card-ico yellow">🔄</span><b>流转统计</b></div>
+            <div class="stat-tiles" id="flow-tiles"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-ico yellow">📈</span><b>总资产趋势图</b><span class="head-meta" id="total-assets-meta"></span></div>
+            <div class="seg-tabs" id="assets-line-tabs">
+              <button class="seg active" data-mode="net">净资产</button>
+              <button class="seg" data-mode="total">总资产</button>
+              <button class="seg" data-mode="debt">总负债</button>
+            </div>
+            <div id="assets-line-chart" class="chart-box small"></div>
+            <div class="chart-legend"><span class="lg net">净资产</span><span class="lg total">总资产</span><span class="lg debt">总负债</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="page-assets" class="page light">
+      <header class="topbar">
+        <div class="topbar-left"><button class="round-btn small blue" id="asset-add">＋</button></div>
+        <div class="topbar-title">资产</div>
+        <div class="topbar-right"><button class="link-btn" id="asset-quick-add">记一笔</button></div>
+      </header>
+      <div class="assets-grid">
+        <div class="assets-left" id="assets-left"></div>
+        <div class="assets-right" id="assets-right"></div>
+      </div>
+    </section>
+
+    <section id="page-savings" class="page dark">
+      <header class="topbar dark-bar">
+        <div class="topbar-left"></div>
+        <div class="topbar-title">存钱</div>
+        <div class="topbar-right"><button class="link-btn orange" id="savings-add">记一笔</button></div>
+      </header>
+      <div class="savings-mode">
+        <button class="mode-pill" data-mode="fixed">🏦 定额存钱</button>
+        <button class="mode-pill active" data-mode="flex">💧 灵活存钱</button>
+      </div>
+      <div class="savings-grid">
+        <div class="savings-left">
+          <div class="section-title">我的计划</div>
+          <div id="plan-list"></div>
+        </div>
+        <div class="savings-right" id="plan-detail"></div>
+      </div>
+    </section>
+
+    <section id="page-settings" class="page light">
+      <header class="topbar">
+        <div class="topbar-left"></div>
+        <div class="topbar-title">设置</div>
+        <div class="topbar-right"></div>
+      </header>
+      <div class="settings-wrap" id="settings-wrap"></div>
+    </section>
+
+  </main>
+</div>
+
+<div class="overlay hidden" id="search-overlay">
+  <div class="search-panel">
+    <div class="search-head">
+      <button class="plain-btn" id="search-cancel">取消</button>
+      <b>搜索账单</b>
+      <span class="head-spacer"></span>
+    </div>
+    <div class="search-input-row">
+      <span class="search-ico">🔍</span>
+      <input id="search-input" placeholder="全部" autocomplete="off">
+      <button class="clear-btn" id="search-clear">✕</button>
+    </div>
+    <div class="filter-row">
+      <button class="filter-chip" data-filter="time">时间 ⌄</button>
+      <button class="filter-chip" data-filter="amount">金额 ⌄</button>
+      <button class="filter-chip" data-filter="more">更多 ⌄</button>
+      <button class="filter-chip" data-filter="sort" id="sort-chip">排序 ⌄</button>
+    </div>
+    <div class="search-totals" id="search-totals"></div>
+    <div class="search-results" id="search-results"></div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="add-overlay">
+  <div class="add-panel">
+    <div class="add-tabs">
+      <button class="add-tab active" data-type="expense">支出</button>
+      <button class="add-tab" data-type="income">收入</button>
+    </div>
+    <div class="add-amount" id="add-amount">0.00</div>
+    <div class="add-pickers">
+      <button class="pick-chip" id="pick-book">📒 默认账本</button>
+      <button class="pick-chip" id="pick-account">💳 账户</button>
+      <button class="pick-chip" id="pick-cat">🍩 分类</button>
+      <button class="pick-chip" id="pick-sub">🏷️ 子分类</button>
+    </div>
+    <div class="cat-picker" id="cat-picker"></div>
+    <div class="sub-row" id="sub-row"></div>
+    <button class="dt-chip" id="pick-datetime">📅 选择时间</button>
+    <div class="keypad">
+      <button data-key="1">1</button><button data-key="2">2</button><button data-key="3">3</button><button class="fn" data-key="ac">AC</button>
+      <button data-key="4">4</button><button data-key="5">5</button><button data-key="6">6</button><button class="fn" data-key="cny">CNY</button>
+      <button data-key="7">7</button><button data-key="8">8</button><button data-key="9">9</button><button class="done" data-key="done" rowspan="2">完成</button>
+      <button data-key=".">.</button><button data-key="0">0</button><button data-key="del">⌫</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="overlay hidden" id="time-overlay">
+  <div class="time-panel">
+    <div class="time-head">
+      <button class="plain-btn" id="time-cancel">取消</button>
+      <b>选择时间</b>
+      <button class="plain-btn blue" id="time-confirm">确定</button>
+    </div>
+    <div class="wheel-wrap">
+      <div class="wheel-band"></div>
+      <div class="wheel-cols" id="wheel-cols"></div>
+    </div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
