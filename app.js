@@ -516,9 +516,11 @@ function renderAssetDetail() {
 /* ---------- 渲染：存钱页 ---------- */
 function renderSavings() {
   $$('.mode-pill').forEach(p => p.classList.toggle('active', p.dataset.mode === state.savingsMode));
-  const plans = PLANS;
+  const plans = PLANS.filter(x => x.mode === state.savingsMode);
   $('#plan-list').innerHTML = plans.map(p => {
-    const pct = p.saved / p.target * 100;
+    const savedAmtOf = pl => pl.cards.length ? pl.cards.filter(c => state.savedCards.has(c.id)).length * pl.cards[0].amount : pl.saved;
+    const savedAmt = savedAmtOf(p);
+    const pct = savedAmt / p.target * 100;
     return `<div class="plan-card ${state.selectedPlanId===p.id?'sel':''}" data-plan="${p.id}">
       <div class="plan-head">
         <div class="acc-ico" style="background:${p.color};width:32px;height:32px;font-size:14px">${p.icon}</div>
@@ -528,8 +530,8 @@ function renderSavings() {
       <div class="plan-dates">${p.dateRange}</div>
       <div class="plan-target">目标金额: <b>${money(p.target)}</b></div>
       <div class="plan-stats">
-        <div><div class="ps-label"><span class="dot" style="background:var(--orange)"></span>已存金额</div><div class="ps-val">${money(p.saved)}</div></div>
-        <div><div class="ps-label"><span class="dot" style="background:var(--text2)"></span>剩余未存</div><div class="ps-val">${money(p.target - p.saved)}</div></div>
+        <div><div class="ps-label"><span class="dot" style="background:var(--orange)"></span>已存金额</div><div class="ps-val">${money(savedAmt)}</div></div>
+        <div><div class="ps-label"><span class="dot" style="background:var(--text2)"></span>剩余未存</div><div class="ps-val">${money(p.target - savedAmt)}</div></div>
       </div>
       <div class="progress"><span>进度:</span><div class="track"><div class="fill" style="width:${pct}%"></div></div><span class="pct">${pct.toFixed(2)}%</span></div>
       <div class="plan-chev">›</div>
@@ -537,7 +539,7 @@ function renderSavings() {
   }).join('') || '<div style="color:var(--text2);font-size:12px;padding:20px;text-align:center">该模式下暂无计划</div>';
   $$('#plan-list .plan-card').forEach(el => el.onclick = () => { state.selectedPlanId = el.dataset.plan; renderSavings(); });
 
-  const p = PLANS.find(x => x.id === state.selectedPlanId) || plans[0];
+  const p = plans.find(x => x.id === state.selectedPlanId) || plans[0];
   if (!p) { $('#plan-detail').innerHTML = ''; return; }
   const pct = p.saved / p.target * 100;
   const savedCount = p.cards.filter(c => state.savedCards.has(c.id)).length;
@@ -592,7 +594,7 @@ function renderSettings() {
     <div class="set-item"><div class="s-label">导出数据<div class="s-desc">下载 JSON 备份</div></div><button class="set-btn" id="export-btn">导出</button></div>
     <div class="set-item"><div class="s-label">重置示例数据<div class="s-desc">清除本地修改，恢复演示数据</div></div><button class="set-btn danger" id="reset-btn">重置</button></div>
     <div class="set-group-title">关于</div>
-    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.3 · 网页预览版 · 数据仅保存在本浏览器</div></div></div>`;
+    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.4 · 网页预览版 · 数据仅保存在本浏览器</div></div></div>`;
   $('#save-budget').onclick = () => {
     const v = parseFloat($('#budget-input').value);
     if (isNaN(v) || v <= 0) { toast('请输入有效的预算金额'); return; }
@@ -778,7 +780,8 @@ function buildTimeWheels() {
   const secs = Array.from({ length: 60 }, (_, i) => i);
   const onYM = () => {
     const d2 = new Date(tp.y, tp.mo, 0).getDate();
-    if (tp.d > d2) { tp.d = d2; rebuildWheelCol(WHEEL.d, Array.from({ length: d2 }, (_, i) => i + 1), tp.d, v => `${v}日`); }
+    tp.d = Math.min(tp.d, d2);
+    rebuildWheelCol(WHEEL.d, Array.from({ length: d2 }, (_, i) => i + 1), tp.d, v => `${v}日`);
   };
   WHEEL.y  = addWheelCol(cols, years,  tp.y,  v => { tp.y = v;  onYM(); }, v => `${v}年`);
   WHEEL.mo = addWheelCol(cols, months, tp.mo, v => { tp.mo = v; onYM(); }, v => `${v}月`);
@@ -799,19 +802,22 @@ function addWheelCol(parent, values, sel, onChange, fmt) {
     el.appendChild(it);
   });
   el.appendChild(mkSpacer());
-  let tm;
-  el.addEventListener('scroll', () => {
-    clearTimeout(tm);
-    tm = setTimeout(() => {
-      const idx = Math.max(0, Math.min(values.length - 1, Math.round(el.scrollTop / ITEM_H)));
-      el.querySelectorAll('.wheel-item').forEach((it, i) => it.classList.toggle('cur', i === idx));
-      onChange(values[idx]);
-    }, 60);
-  });
+  const w = { el, values, fmt, onChange };
+  bindWheelScroll(w);
   const selIdx = Math.max(0, values.indexOf(sel));
   requestAnimationFrame(() => { el.scrollTop = selIdx * ITEM_H; });
   parent.appendChild(el);
-  return { el, values, fmt };
+  return w;
+}
+function bindWheelScroll(w) {
+  w.el.onscroll = () => {
+    clearTimeout(w.tm);
+    w.tm = setTimeout(() => {
+      const idx = Math.max(0, Math.min(w.values.length - 1, Math.round(w.el.scrollTop / ITEM_H)));
+      w.el.querySelectorAll('.wheel-item').forEach((it, i) => it.classList.toggle('cur', i === idx));
+      w.onChange(w.values[idx]);
+    }, 60);
+  };
 }
 function rebuildWheelCol(w, values, sel, fmt) {
   w.values = values; w.fmt = fmt;
@@ -828,6 +834,7 @@ function rebuildWheelCol(w, values, sel, fmt) {
   el.appendChild(mkSpacer());
   const selIdx = Math.max(0, values.indexOf(sel));
   el.scrollTop = selIdx * ITEM_H;
+  bindWheelScroll(w);
 }
 function confirmTime() {
   add.dt = `${tp.y}-${pad2(tp.mo)}-${pad2(tp.d)}T${pad2(tp.h)}:${pad2(tp.mi)}:${pad2(tp.s)}`;
@@ -864,7 +871,11 @@ function bind() {
   $('#search-input').oninput = e => { state.searchQuery = e.target.value; renderSearch(); };
   $('#sort-chip').onclick = () => { state.sortDesc = !state.sortDesc; $('#sort-chip').classList.toggle('on', state.sortDesc); renderSearch(); };
   $$('.filter-chip:not(#sort-chip)').forEach(c => c.onclick = () => { c.classList.toggle('on'); toast('演示版：更多筛选条件暂未开放'); });
-  $('#goto-month-stats').onclick = () => { state.statsMode='month'; navigate('stats'); };
+  $('#goto-month-stats').onclick = () => {
+    state.statsMode = 'month';
+    state.statsRange = [state.month + '-01', state.month + '-' + String(daysInMonth(state.month)).padStart(2, '0')];
+    navigate('stats');
+  };
   $('#stats-filter').onclick = () => toast('演示版：筛选暂未开放');
   $('#sync-btn').onclick = () => toast('演示版：数据保存在本地');
   $('#help-btn').onclick = () => toast('iCost Web · 演示版');
