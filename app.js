@@ -21,6 +21,7 @@ const LS_BALANCES = 'icostweb_balances_v1';
 const LS_SETTINGS = 'icostweb_settings_v1';
 const LS_SAVINGS = 'icostweb_savings_v1';
 const LS_REIMB = 'icostweb_reimbursements_v1';
+const LS_CREDIT_LIMITS = 'icostweb_credit_limits_v1';
 const FLOW = [ ['还款',0],['收款',0],['转账',1000],['充值',50],['借入',0],['借出',1000] ];
 const HOLIDAYS = { '2024-05-01':'劳动节', '2024-06-01':'儿童节' };
 
@@ -57,6 +58,9 @@ const state = {
   savingsDeposits: {},
   accountEditingId: '',
   reimbursements: [],
+  creditLimits: {},
+  collapsedDays: new Set(),
+  collapsedAssetGroups: new Set(),
 };
 
 function load() {
@@ -97,14 +101,26 @@ function load() {
     const reimb = localStorage.getItem(LS_REIMB);
     state.reimbursements = reimb ? JSON.parse(reimb) : [{ id:'r-seed', date:'2024-05-28', amount:108, note:'客户差旅', status:'pending' }];
   } catch { state.reimbursements = []; }
+  try {
+    const limits = localStorage.getItem(LS_CREDIT_LIMITS);
+    state.creditLimits = limits ? JSON.parse(limits) : {};
+  } catch { state.creditLimits = {}; }
 }
 function saveTxs() { localStorage.setItem(LS_KEY, JSON.stringify(state.txs)); }
 function saveSettings() { localStorage.setItem(LS_SETTINGS, JSON.stringify({ currency:state.currency, weekStart:state.weekStart })); }
 function saveSavings() { localStorage.setItem(LS_SAVINGS, JSON.stringify(state.savingsDeposits)); }
 function saveReimbursements() { localStorage.setItem(LS_REIMB, JSON.stringify(state.reimbursements)); }
-function reimbursementTotals() {
-  const sum = status => state.reimbursements.filter(r=>r.status===status).reduce((s,r)=>s+Number(r.amount||0),0);
+function reimbursementTotals(from = '', to = '') {
+  const inRange = r => (!from || r.date >= from) && (!to || r.date <= to);
+  const sum = status => state.reimbursements.filter(r=>r.status===status && inRange(r)).reduce((s,r)=>s+(Number.isFinite(finiteAmount(r.amount))?finiteAmount(r.amount):0),0);
   return { pending:sum('pending'), done:sum('done'), in:sum('in') };
+}
+const finiteAmount = value => {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : NaN;
+};
+function creditLimitOf(account) {
+  return state.creditLimits[account.id] !== undefined ? state.creditLimits[account.id] : account.limit;
 }
 function renderReimbManager(totals) {
   const rows = state.reimbursements.map(r => `
@@ -130,7 +146,7 @@ function renderReimbManager(totals) {
     </div>`;
 }
 function addReimbursement() {
-  const amount = parseFloat($('#reimb-amount').value);
+  const amount = finiteAmount($('#reimb-amount').value);
   const date = $('#reimb-date').value;
   const note = $('#reimb-note').value.trim();
   if (!date) { toast('请选择报销日期'); return; }
@@ -224,12 +240,16 @@ function accountIconHTML(account, style = '') {
 }
 function saveAccountBalance(account, value) {
   const amount = Math.round(value * 100) / 100;
+  if (account.credit && creditLimitOf(account) !== undefined) {
+    state.creditLimits[account.id] = Math.round((creditLimitOf(account) + amount - accountBalance(account)) * 100) / 100;
+  }
   if (ACCOUNTS.some(a => a.id === account.id)) state.userBalances[account.id] = amount;
   else {
     account.balance = amount;
     localStorage.setItem(LS_ACCOUNTS, JSON.stringify(state.userAccounts));
   }
   localStorage.setItem(LS_BALANCES, JSON.stringify(state.userBalances));
+  localStorage.setItem(LS_CREDIT_LIMITS, JSON.stringify(state.creditLimits));
 }
 function assetSummary() {
   return assetSummaryAt();
@@ -272,6 +292,41 @@ function addUserSub(cat, name, icon = '', image = '') {
   add.newSubIcon = ''; add.newSubImage = '';
   renderAdd();
   toast(`已创建子分类「${n}」`);
+}
+async function renameUserSub(cat, oldName) {
+  if (!(state.userSubs[cat] || []).includes(oldName)) return;
+  const value = await appPrompt(`修改「${cat} / ${oldName}」名称`, oldName);
+  if (value === null) return;
+  const newName = value.trim();
+  if (!newName) { toast('请输入子分类名称'); return; }
+  if (newName.length > 12) { toast('子分类名称不能超过 12 个字'); return; }
+  if (newName === oldName) return;
+  if (subsOf(cat).includes(newName)) { toast('子分类名称已存在'); return; }
+  const list = state.userSubs[cat];
+  list[list.indexOf(oldName)] = newName;
+  const oldKey = subIconKey(cat, oldName);
+  if (state.subIcons[oldKey]) {
+    state.subIcons[subIconKey(cat, newName)] = state.subIcons[oldKey];
+    delete state.subIcons[oldKey];
+  }
+  state.txs.forEach(tx => { if (tx.cat === cat && tx.sub === oldName) tx.sub = newName; });
+  if (add.cat === cat && add.sub === oldName) add.sub = newName;
+  localStorage.setItem(LS_SUBS, JSON.stringify(state.userSubs));
+  localStorage.setItem(LS_SUB_ICONS, JSON.stringify(state.subIcons));
+  saveTxs();
+  renderAdd();
+  toast('子分类已更新 ✓');
+}
+function deleteUserSub(cat, name) {
+  if (!(state.userSubs[cat] || []).includes(name)) return;
+  if (!confirm(`确定删除子分类「${name}」吗？已有账单会保留原分类名。`)) return;
+  state.userSubs[cat] = state.userSubs[cat].filter(item => item !== name);
+  delete state.subIcons[subIconKey(cat, name)];
+  if (add.cat === cat && add.sub === name) add.sub = subsOf(cat)[0] || '';
+  localStorage.setItem(LS_SUBS, JSON.stringify(state.userSubs));
+  localStorage.setItem(LS_SUB_ICONS, JSON.stringify(state.subIcons));
+  renderAdd();
+  toast('子分类已删除 ✓');
 }
 function readSubIconImage(file, callback) {
   if (!file) return;
@@ -374,18 +429,24 @@ function lineChart(el, data, { color = '#2FBF71', fill = true, yFmt = v => v, do
     padL + (n === 1 ? iw/2 : (i / (n - 1)) * iw),
     padT + ih - ((d.v - yMin) / (yMax - yMin)) * ih
   ]);
-  if (fill) {
-    const area = smoothPath(pts) + ` L ${pts[n-1][0]},${padT + ih} L ${pts[0][0]},${padT + ih} Z`;
+  const curve = smoothPath(pts);
+  if (fill && curve) {
+    const area = curve + ` L ${pts[n-1][0]},${padT + ih} L ${pts[0][0]},${padT + ih} Z`;
     sv('path', { d:area, fill:`url(#${grad.id})`, stroke:'none' }, svg);
   }
-  let lineD = smoothPath(pts);
-  if (dashedTail) {
-    const [lx, ly] = pts[n-1];
-    lineD += ` L ${lx + 26},${ly}`;
-    sv('line', { x1:lx, x2:lx+26, y1:ly, y2:ly, stroke:color, 'stroke-width':2, 'stroke-dasharray':'4 4' }, svg);
+  if (!curve) {
+    const [lx, ly] = pts[0];
+    sv('circle', { cx:lx, cy:ly, r:4, fill:'#fff', stroke:color, 'stroke-width':2 }, svg);
+  } else {
+    let lineD = curve;
+    if (dashedTail) {
+      const [lx, ly] = pts[n-1];
+      lineD += ` L ${lx + 26},${ly}`;
+      sv('line', { x1:lx, x2:lx+26, y1:ly, y2:ly, stroke:color, 'stroke-width':2, 'stroke-dasharray':'4 4' }, svg);
+    }
+    sv('path', { d:lineD, fill:'none', stroke:color, 'stroke-width':2, 'stroke-linecap':'round' }, svg);
   }
-  sv('path', { d:lineD, fill:'none', stroke:color, 'stroke-width':2, 'stroke-linecap':'round' }, svg);
-  if (dotLast) {
+  if (dotLast && curve) {
     const [lx, ly] = pts[n-1];
     sv('circle', { cx:lx, cy:ly, r:4, fill:'#fff', stroke:color, 'stroke-width':2 }, svg);
   }
@@ -469,22 +530,29 @@ function renderSummary() {
   const inc = agg.reduce((s,d)=>s+d.inc,0);
   const dim = daysInMonth(state.month);
   const remainBudget = state.budget - exp;
+  const reimb = reimbursementTotals(`${state.month}-01`, `${state.month}-${String(dim).padStart(2,'0')}`);
   const cards = [
-    { dot:'#FF5D5D', label:'总支出', amount:exp, sub:[['总收入', money(inc)],['结余', money(inc-exp)]] },
-    { dot:'#34C77B', label:'剩余预算', amount:Math.max(remainBudget,0), sub:[['总预算', money(state.budget)],['剩余日均', money(Math.max(remainBudget,0)/dim)]], arrow:true },
-    { dot:'#4D9FFF', label:'待报销', amount:reimbursementTotals().pending, sub:[['已报销', money(reimbursementTotals().done)],['报销入账', money(reimbursementTotals().in)]], arrow:true },
-    { dot:'#FFA53C', label:'净资产', amount:assetSummary().net, sub:[['总资产', money(assetSummary().total)],['总负债', money(assetSummary().debt)]], arrow:true },
+    { dot:'#FF5D5D', label:'总支出', amount:exp, nav:'stats', sub:[['总收入', money(inc)],['结余', money(inc-exp)]] },
+    { dot:'#34C77B', label:'剩余预算', amount:Math.max(remainBudget,0), nav:'settings', sub:[['总预算', money(state.budget)],['剩余日均', money(Math.max(remainBudget,0)/dim)]], arrow:true },
+    { dot:'#4D9FFF', label:'待报销', amount:reimb.pending, nav:'stats', sub:[['已报销', money(reimb.done)],['报销入账', money(reimb.in)]], arrow:true },
+    { dot:'#FFA53C', label:'净资产', amount:assetSummary().net, nav:'assets', sub:[['总资产', money(assetSummary().total)],['总负债', money(assetSummary().debt)]], arrow:true },
   ];
   $('#summary-cards').innerHTML = cards.map(c => `
-    <div class="sum-card">
+    <div class="sum-card" role="button" tabindex="0" data-nav="${c.nav}">
       <div class="s-head"><span class="s-dot" style="background:${c.dot}"></span>${c.label}${c.arrow?'<span class="s-arrow">›</span>':''}</div>
-      <div class="s-amount"><span class="yen">¥</span>${fmt(c.amount)}</div>
+      <div class="s-amount">${money(c.amount)}</div>
       <div class="s-sub">${c.sub.map(([k,v])=>`<span>${k} <span class="v">${v}</span></span>`).join('')}</div>
     </div>`).join('');
+  $$('#summary-cards .sum-card').forEach(card => {
+    const open = () => navigate(card.dataset.nav);
+    card.onclick = open;
+    card.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } };
+  });
 }
 
 function renderCalendar() {
   $('#cal-title').textContent = fmtMonthTitle(state.month);
+  const todayKey = localISO(new Date());
   const grid = $('#cal-grid');
   grid.innerHTML = '';
   $('.cal-week').innerHTML = orderedWeekdays().map(d => `<span>${d}</span>`).join('');
@@ -498,7 +566,7 @@ function renderCalendar() {
   agg.forEach(d => {
     const key = `${state.month}-${String(d.day).padStart(2,'0')}`;
     const c = document.createElement('div');
-    c.className = 'cal-cell' + (key === state.selectedDay ? ' sel' : '');
+    c.className = 'cal-cell' + (key === state.selectedDay ? ' sel' : '') + (key === todayKey ? ' today' : '');
     c.innerHTML = `<div class="d">${d.day}</div>
       <div class="lunar">${HOLIDAYS[key] || ''}</div>
       ${d.exp ? `<div class="exp">-${fmt(d.exp)}</div>` : '<div class="exp"></div>'}
@@ -585,6 +653,12 @@ function deleteTx(id) {
   allAccounts().forEach(account => saveAccountBalance(account, accountBalance(account) - accountTxEffect(tx, account.name)));
   state.txs = state.txs.filter(t => t.id !== id);
   saveTxs();
+  const linkedReimb = state.reimbursements.find(r => r.txId === id);
+  if (linkedReimb) {
+    linkedReimb.status = 'done';
+    linkedReimb.txId = '';
+    saveReimbursements();
+  }
   toast('账单已删除 ✓');
   refreshPage();
   if (!$('#search-overlay').classList.contains('hidden')) renderSearch();
@@ -602,11 +676,21 @@ function renderTxnList() {
     const list = groups[day];
     const e = list.filter(t=>t.type==='expense').reduce((s,t)=>s+txNet(t),0);
     const i = list.filter(t=>t.type==='income').reduce((s,t)=>s+txNet(t),0);
+    const collapsed = state.collapsedDays.has(day);
     return `<div class="day-group">
-      <div class="day-head"><b>${day.slice(5).replace('-','/')}</b> ${weekdayOf(day)}<span class="sp"></span>支出: ${money(e)} 收入: ${money(i)}<span class="chev">⌄</span></div>
-      ${list.map(txnItemHTML).join('')}
+      <div class="day-head" role="button" tabindex="0" aria-expanded="${!collapsed}" data-day="${day}"><b>${day.slice(5).replace('-','/')}</b> ${weekdayOf(day)}<span class="sp"></span>支出: ${money(e)} 收入: ${money(i)}<span class="chev ${collapsed?'up':''}">⌄</span></div>
+      ${collapsed ? '' : list.map(txnItemHTML).join('')}
     </div>`;
   }).join('');
+  $$('#txn-list .day-head').forEach(head => {
+    const toggle = () => {
+      const day = head.dataset.day;
+      state.collapsedDays.has(day) ? state.collapsedDays.delete(day) : state.collapsedDays.add(day);
+      renderTxnList();
+    };
+    head.onclick = toggle;
+    head.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
+  });
   bindTxActions('#txn-list');
 }
 
@@ -628,8 +712,9 @@ function renderLedgerCharts() {
   const series = state.networthTab === 'net' ? nw : state.networthTab === 'total' ? summariesTotal : summariesDebt;
   const lastV = series[series.length-1];
   $('#networth-meta').textContent = `${monthDates.at(-1).slice(5).replace('-','/')} ${money(lastV)}`;
+  const monthShort = String(+state.month.slice(5));
   lineChart($('#networth-chart'),
-    series.map((v,i)=>({ v, axis: i===0?`5-1`:i===15?`5-16`:i===series.length-1?`${state.month.slice(5)}-${daysInMonth(state.month)}`:'' })),
+    series.map((v,i)=>({ v, axis: i===0?`${monthShort}-1`:i===15?`${monthShort}-16`:i===series.length-1?`${monthShort}-${daysInMonth(state.month)}`:'' })),
     { color:'#FFA53C', yFmt: v => (v/10000).toFixed(2)+'w', dotLast:true });
 }
 
@@ -689,16 +774,34 @@ function renderStats() {
   const [, tm, td] = to.split('-');
   $('#stats-range-title').textContent = `${+fy}年${+fm}月${+fd}日 ~ ${+tm}月${+td}日`;
 
-  const tile = (label, val, cls='') => `<div class="stat-tile"><div class="st-label">${label} <span class="arr">›</span></div><div class="st-value ${cls}">${val}</div></div>`;
+  const incomeText = t => [t.cat, t.sub, t.note || ''].join(' ');
+  const refunds = txs.filter(t => t.type === 'income' && /退款|返款/.test(incomeText(t))).reduce((s,t)=>s+t.amount,0);
+  const consumptionIncome = txs.filter(t => t.type === 'income' && !['副业','工资','投资收益'].includes(t.cat) && !/报销|退款|返款/.test(incomeText(t))).reduce((s,t)=>s+t.amount,0);
+  const fees = txs.filter(t => [t.cat, t.sub, t.note || ''].join(' ').includes('手续费')).reduce((s,t)=>s+t.amount,0);
+  const repayment = txs.filter(t => {
+    if (t.type !== 'transfer') return false;
+    const target = allAccounts().find(a => a.name === t.toAccount);
+    return target && target.group === 'credit';
+  }).reduce((s,t)=>s+t.amount,0);
+  const receipts = txs.filter(t => t.type === 'income' && !/借入/.test(incomeText(t))).reduce((s,t)=>s+t.amount,0);
+  const transfers = txs.filter(t => t.type === 'transfer').reduce((s,t)=>s+t.amount,0);
+  const recharge = txs.filter(t => {
+    if (t.type !== 'transfer') return false;
+    const target = allAccounts().find(a => a.name === t.toAccount);
+    return target && target.group === 'recharge';
+  }).reduce((s,t)=>s+t.amount,0);
+  const borrowIn = txs.filter(t => /借入/.test(incomeText(t))).reduce((s,t)=>s+t.amount,0);
+  const borrowOut = txs.filter(t => (t.type === 'expense' || t.type === 'transfer') && /借出/.test(incomeText(t))).reduce((s,t)=>s+t.amount,0);
+  const tile = (label, val, cls='') => `<div class="stat-tile"><div class="st-label">${label}</div><div class="st-value ${cls}">${val}</div></div>`;
   $('#income-tiles').innerHTML =
-    tile('支出', fmt(exp), 'red') + tile('收入', fmt(inc), 'green') +
-    tile('结余', fmt(bal)) + tile('日均支出', fmt(exp/n)) +
-    tile('退款', fmt(0)) + tile('消费收入', fmt(0)) +
-    tile('优惠', fmt(offers)) + tile('手续费', fmt(0));
-  const reimb = reimbursementTotals();
+    tile('支出', money(exp), 'red') + tile('收入', money(inc), 'green') +
+    tile('结余', money(bal)) + tile('日均支出', money(exp/n)) +
+    tile('退款', money(refunds)) + tile('消费收入', money(consumptionIncome)) +
+    tile('优惠', money(offers)) + tile('手续费', money(fees));
+  const reimb = reimbursementTotals(from, to);
   $('#reimb-tiles').innerHTML =
-    tile('待报销', fmt(reimb.pending), 'red') + tile('已报销', fmt(reimb.done)) +
-    tile('报销入账', fmt(reimb.in)) + tile('报销收入', fmt(reimb.in)) +
+    tile('待报销', money(reimb.pending), 'red') + tile('已报销', money(reimb.done)) +
+    tile('报销入账', money(reimb.in)) + tile('报销收入', money(reimb.in)) +
     renderReimbManager(reimb);
   $('#reimb-add-btn').onclick = addReimbursement;
   $$('#reimb-tiles [data-reimb-action]').forEach(btn => btn.onclick = () => {
@@ -707,7 +810,8 @@ function renderStats() {
     else if (btn.dataset.reimbAction === 'in') setReimbursementStatus(id, 'in');
     else if (btn.dataset.reimbAction === 'delete') deleteReimbursement(id);
   });
-  $('#flow-tiles').innerHTML = FLOW.map(([k,v],i) => tile(k, fmt(v), i===5?'green':'')).join('');
+  const flowValues = { '还款':repayment, '收款':receipts, '转账':transfers, '充值':recharge, '借入':borrowIn, '借出':borrowOut };
+  $('#flow-tiles').innerHTML = FLOW.map(([k],i) => tile(k, money(flowValues[k] || 0), i===5?'green':'')).join('');
   $('#stats-avg').textContent = money(inc / n);
 
   const lineData = days.map(d => {
@@ -758,30 +862,39 @@ function renderAssets() {
   const accounts = allAccounts();
   const summary = assetSummary();
   const groups = [
-    { key:'fund', label:'资金账户', ids:accounts.filter(a=>a.group==='fund').map(a=>a.id), headRight:`余额: ${money(summary.fund)} ⌄` },
-    { key:'credit', label:'信用账户', ids:accounts.filter(a=>a.group==='credit').map(a=>a.id), headRight:`欠款: ${money(summary.debt)} ⌄` },
-    { key:'recharge', label:'充值账户', ids:accounts.filter(a=>a.group==='recharge').map(a=>a.id), headRight:`余额: ${money(summary.recharge)} ⌄` },
+    { key:'fund', label:'资金账户', ids:accounts.filter(a=>a.group==='fund').map(a=>a.id), headRight:`余额: ${money(summary.fund)}` },
+    { key:'credit', label:'信用账户', ids:accounts.filter(a=>a.group==='credit').map(a=>a.id), headRight:`欠款: ${money(summary.debt)}` },
+    { key:'recharge', label:'充值账户', ids:accounts.filter(a=>a.group==='recharge').map(a=>a.id), headRight:`余额: ${money(summary.recharge)}` },
   ];
   left.innerHTML = `
     <div class="card networth-card">
       <div class="nw-label">净资产 <span>👁</span></div>
-      <div class="nw-amount"><span class="yen">${money(summary.net).slice(0,1)}</span>${fmt(summary.net)}</div>
+      <div class="nw-amount">${money(summary.net)}</div>
       <div class="nw-sub"><span>总资产 ${money(summary.total)}</span><span>总负债 ${money(summary.debt)}</span></div>
     </div>
     ${groups.map(g => `
       <div>
-        <div class="group-head">${g.label} <span class="cnt">(${g.ids.length})</span><span class="g-right">${g.headRight}</span></div>
-        ${g.ids.map(id => {
+        <div class="group-head" role="button" tabindex="0" aria-expanded="${!state.collapsedAssetGroups.has(g.key)}" data-group="${g.key}">${g.label} <span class="cnt">(${g.ids.length})</span><span class="g-right">${g.headRight}<span class="group-chev ${state.collapsedAssetGroups.has(g.key)?'up':''}">⌄</span></span></div>
+        ${state.collapsedAssetGroups.has(g.key) ? '' : g.ids.map(id => {
           const a = accOf(id), v = accountBalance(a);
-          const sub = a.credit ? `[信用卡] 10天后出账${a.limit !== undefined ? `<br>可用额度: ${money(a.limit)}` : ''}` : esc(a.sub);
+          const sub = a.credit ? `每月10日出账${creditLimitOf(a) !== undefined ? `<br>可用额度: ${money(creditLimitOf(a))}` : ''}` : esc(a.sub);
           return `<div class="acc-item ${state.selectedAccountId===id?'sel':''}" data-acc="${id}">
             <div class="acc-ico" style="background:${a.color}">${accountIconHTML(a)}</div>
             <div class="acc-mid"><div class="acc-name">${esc(a.name)}</div><div class="acc-sub">${sub}</div></div>
-            <div><div class="acc-amt ${v<0?'neg':''}">${money(v)}</div>${a.credit?`<div class="acc-amt-sub">可用额度: ${money(a.limit)}</div>`:''}</div>
+          <div><div class="acc-amt ${v<0?'neg':''}">${money(v)}</div>${a.credit&&creditLimitOf(a)!==undefined?`<div class="acc-amt-sub">可用额度: ${money(creditLimitOf(a))}</div>`:''}</div>
           </div>`;
         }).join('')}
       </div>`).join('')}`;
   $$('#assets-left .acc-item').forEach(el => el.onclick = () => { state.selectedAccountId = el.dataset.acc; renderAssets(); });
+  $$('#assets-left .group-head').forEach(head => {
+    const toggle = () => {
+      const key = head.dataset.group;
+      state.collapsedAssetGroups.has(key) ? state.collapsedAssetGroups.delete(key) : state.collapsedAssetGroups.add(key);
+      renderAssets();
+    };
+    head.onclick = toggle;
+    head.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
+  });
   renderAssetDetail();
 }
 
@@ -809,7 +922,7 @@ function renderAssetDetail() {
       </div>
       <div class="dt-amount-label">${isCredit?'当前欠款':'当前余额'} (CNY)</div>
       <div class="dt-amount ${isCredit?'edit':''}"><span class="yen">¥</span>${fmt(Math.abs(balance))} ${isCredit?'✏️':''}</div>
-      ${isCredit ? (a.limit !== undefined ? `<div class="dt-meta"><span>可用额度 <b>${money(a.limit)}</b></span><span>出账日 <b>10天后出账</b></span></div>` : '') : `<div class="dt-meta"><span>本月流出 <b class="dt-out" style="color:var(--red)">${money(out)}</b></span><span>流入 <b style="color:var(--green)">${money(inc)}</b></span></div>`}
+      ${isCredit ? (creditLimitOf(a) !== undefined ? `<div class="dt-meta"><span>可用额度 <b>${money(creditLimitOf(a))}</b></span><span>出账日 <b>每月10日</b></span></div>` : '') : `<div class="dt-meta"><span>本月流出 <b class="dt-out" style="color:var(--red)">${money(out)}</b></span><span>流入 <b style="color:var(--green)">${money(inc)}</b></span></div>`}
       <div class="notice">ⓘ 关于金额调整 <span class="x">✕</span></div>
       ${Object.keys(months).sort().reverse().map(m => {
         const list = months[m];
@@ -842,7 +955,7 @@ function renderSavings() {
   $('#plan-list').innerHTML = plans.map(p => {
     const savedAmtOf = pl => pl.cards.length ? pl.cards.filter(c => state.savedCards.has(c.id)).length * pl.cards[0].amount : pl.saved + depositTotal(pl);
     const savedAmt = savedAmtOf(p);
-    const pct = savedAmt / p.target * 100;
+    const pct = Math.min(100, savedAmt / p.target * 100);
     return `<div class="plan-card ${state.selectedPlanId===p.id?'sel':''}" data-plan="${p.id}">
       <div class="plan-head">
         <div class="acc-ico" style="background:${p.color};width:32px;height:32px;font-size:14px">${p.icon}</div>
@@ -853,7 +966,7 @@ function renderSavings() {
       <div class="plan-target">目标金额: <b>${money(p.target)}</b></div>
       <div class="plan-stats">
         <div><div class="ps-label"><span class="dot" style="background:var(--orange)"></span>已存金额</div><div class="ps-val">${money(savedAmt)}</div></div>
-        <div><div class="ps-label"><span class="dot" style="background:var(--text2)"></span>剩余未存</div><div class="ps-val">${money(p.target - savedAmt)}</div></div>
+      <div><div class="ps-label"><span class="dot" style="background:var(--text2)"></span>剩余未存</div><div class="ps-val">${money(Math.max(0, p.target - savedAmt))}</div></div>
       </div>
       <div class="progress"><span>进度:</span><div class="track"><div class="fill" style="width:${pct}%"></div></div><span class="pct">${pct.toFixed(2)}%</span></div>
       <div class="plan-chev">›</div>
@@ -862,12 +975,13 @@ function renderSavings() {
   $$('#plan-list .plan-card').forEach(el => el.onclick = () => { state.selectedPlanId = el.dataset.plan; renderSavings(); });
 
   const p = plans.find(x => x.id === state.selectedPlanId) || plans[0];
+  if (p) state.selectedPlanId = p.id;
   if (!p) { $('#plan-detail').innerHTML = ''; return; }
   const pct = p.saved / p.target * 100;
   const savedCount = p.cards.filter(c => state.savedCards.has(c.id)).length;
   const savedAmt = p.cards.length ? savedCount * (p.cards[0].amount) : p.saved + depositTotal(p);
   const remaining = p.target - savedAmt;
-  const pct2 = savedAmt / p.target * 100;
+  const pct2 = Math.min(100, savedAmt / p.target * 100);
   $('#plan-detail').innerHTML = `
     <div class="card" style="background:var(--card)">
       <div class="detail-head">
@@ -880,7 +994,7 @@ function renderSavings() {
       </div>
       <div class="plan-stats" style="margin-top:12px">
         <div><div class="ps-label"><span class="dot" style="background:var(--orange)"></span>已存金额</div><div class="ps-val">${money(savedAmt)}</div></div>
-        <div><div class="ps-label"><span class="dot" style="background:var(--text2)"></span>剩余未存</div><div class="ps-val">${money(remaining)}</div></div>
+        <div><div class="ps-label"><span class="dot" style="background:var(--text2)"></span>剩余未存</div><div class="ps-val">${money(Math.max(0, remaining))}</div></div>
       </div>
       <div class="progress"><span>进度:</span><div class="track"><div class="fill" style="width:${pct2}%"></div></div><span class="pct">${pct2.toFixed(2)}%</span></div>
       ${p.cards.length ? `
@@ -913,7 +1027,8 @@ function renderSavings() {
   if (depositButton) depositButton.onclick = async () => {
     const value = await appPrompt('输入本次存入金额');
     if (value === null) return;
-    const amount = Math.round(parseFloat(value) * 100) / 100;
+  const parsed = finiteAmount(value);
+  const amount = Math.round(parsed * 100) / 100;
     if (!amount || amount <= 0) { toast('请输入有效金额'); return; }
     (state.savingsDeposits[p.id] = state.savingsDeposits[p.id] || []).push({ id:'d'+Date.now(), amount, date:localISO(new Date()) });
     saveSavings();
@@ -1121,9 +1236,9 @@ function renderSettings() {
     <div class="set-item"><div class="s-label">导出 Excel<div class="s-desc">选择账单时间，导出标准 .xlsx</div></div><button class="set-btn" id="export-excel-open">选择时间</button></div>
     <div class="set-item"><div class="s-label">重置示例数据<div class="s-desc">清除本地修改，恢复演示数据</div></div><button class="set-btn danger" id="reset-btn">重置</button></div>
     <div class="set-group-title">关于</div>
-    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.10 · 本地完整版 · 数据仅保存在本机</div></div></div>`;
+    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.12 · 本地完整版 · 数据仅保存在本机</div></div></div>`;
   $('#save-budget').onclick = () => {
-    const v = parseFloat($('#budget-input').value);
+  const v = finiteAmount($('#budget-input').value);
     if (isNaN(v) || v <= 0) { toast('请输入有效的预算金额'); return; }
     state.budget = v;
     localStorage.setItem(LS_BUDGET, state.budget);
@@ -1135,7 +1250,7 @@ function renderSettings() {
   $('#currency-select').onchange = e => { state.currency = e.target.value; saveSettings(); refreshPage(); toast('货币显示已更新'); };
   $('#week-start-select').onchange = e => { state.weekStart = +e.target.value; saveSettings(); refreshPage(); toast('每周开始日已更新'); };
   $('#export-btn').onclick = () => {
-    const backup = { app:'iCost Web', version:'1.0.10', exportedAt:new Date().toISOString(), txs:state.txs, accounts:state.userAccounts, balances:state.userBalances, budget:state.budget, savedCards:[...state.savedCards], userSubs:state.userSubs, subIcons:state.subIcons, settings:{ currency:state.currency, weekStart:state.weekStart }, savingsDeposits:state.savingsDeposits, reimbursements:state.reimbursements };
+    const backup = { app:'iCost Web', version:'1.0.12', exportedAt:new Date().toISOString(), txs:state.txs, accounts:state.userAccounts, balances:state.userBalances, creditLimits:state.creditLimits, budget:state.budget, savedCards:[...state.savedCards], userSubs:state.userSubs, subIcons:state.subIcons, settings:{ currency:state.currency, weekStart:state.weekStart }, savingsDeposits:state.savingsDeposits, reimbursements:state.reimbursements };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type:'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = 'icost-web-backup.json'; a.click();
@@ -1148,15 +1263,28 @@ function renderSettings() {
       try {
         const data = JSON.parse(reader.result);
         if (!data || !Array.isArray(data.txs)) throw new Error('bad backup');
-        state.txs = data.txs;
-        state.userAccounts = Array.isArray(data.accounts) ? data.accounts : [];
-        state.userBalances = data.balances && typeof data.balances === 'object' ? data.balances : {};
+        state.txs = data.txs.filter(t => t && typeof t === 'object' && /^\d{4}-\d{2}-\d{2}$/.test(t.date || '') && ['expense','income','transfer'].includes(t.type) && finiteAmount(t.amount) > 0);
+        state.userAccounts = (Array.isArray(data.accounts) ? data.accounts : []).filter(a => a && typeof a === 'object' && a.id && a.name && ['fund','credit','recharge'].includes(a.group)).map(a => ({
+          ...a,
+          balance: Number.isFinite(finiteAmount(a.balance)) ? finiteAmount(a.balance) : 0,
+          credit: a.group === 'credit' ? true : undefined
+        }));
+        state.userBalances = {};
+        Object.entries(data.balances && typeof data.balances === 'object' ? data.balances : {}).forEach(([id, value]) => {
+          const amount = finiteAmount(value);
+          if (Number.isFinite(amount)) state.userBalances[id] = amount;
+        });
+        state.creditLimits = {};
+        Object.entries(data.creditLimits && typeof data.creditLimits === 'object' ? data.creditLimits : {}).forEach(([id, value]) => {
+          const amount = finiteAmount(value);
+          if (Number.isFinite(amount)) state.creditLimits[id] = amount;
+        });
         state.budget = Number(data.budget) > 0 ? Number(data.budget) : BUDGET;
-        state.savedCards = new Set(Array.isArray(data.savedCards) ? data.savedCards : []);
-        state.userSubs = data.userSubs && typeof data.userSubs === 'object' ? data.userSubs : {};
-        state.subIcons = data.subIcons && typeof data.subIcons === 'object' ? data.subIcons : {};
-        state.savingsDeposits = data.savingsDeposits && typeof data.savingsDeposits === 'object' ? data.savingsDeposits : {};
-        state.reimbursements = Array.isArray(data.reimbursements) ? data.reimbursements : [];
+        state.savedCards = new Set((Array.isArray(data.savedCards) ? data.savedCards : []).map(String).filter(Boolean));
+        state.userSubs = Object.fromEntries(Object.entries(data.userSubs && typeof data.userSubs === 'object' ? data.userSubs : {}).map(([key, value]) => [String(key), Array.isArray(value) ? value.map(String).filter(Boolean) : []]));
+        state.subIcons = Object.fromEntries(Object.entries(data.subIcons && typeof data.subIcons === 'object' ? data.subIcons : {}).filter(([, value]) => value && typeof value === 'object').map(([key, value]) => [String(key), { icon:String(value.icon || ''), image:String(value.image || '') }]));
+        state.savingsDeposits = Object.fromEntries(Object.entries(data.savingsDeposits && typeof data.savingsDeposits === 'object' ? data.savingsDeposits : {}).map(([key, value]) => [String(key), Array.isArray(value) ? value.filter(item => item && Number.isFinite(finiteAmount(item.amount)) && finiteAmount(item.amount) > 0).map(item => ({ ...item, amount:finiteAmount(item.amount) })) : []]));
+        state.reimbursements = (Array.isArray(data.reimbursements) ? data.reimbursements : []).filter(r => r && typeof r === 'object' && /^\d{4}-\d{2}-\d{2}$/.test(r.date || '') && finiteAmount(r.amount) > 0 && ['pending','done','in'].includes(r.status));
         if (data.settings && CURRENCIES[data.settings.currency]) state.currency = data.settings.currency;
         if (data.settings && [0,1].includes(data.settings.weekStart)) state.weekStart = data.settings.weekStart;
         localStorage.setItem(LS_KEY, JSON.stringify(state.txs));
@@ -1168,6 +1296,14 @@ function renderSettings() {
         localStorage.setItem(LS_SUB_ICONS, JSON.stringify(state.subIcons));
         saveSettings(); saveSavings();
         saveReimbursements();
+        localStorage.setItem(LS_CREDIT_LIMITS, JSON.stringify(state.creditLimits));
+        const latest = [...state.txs].sort((a,b) => b.date.localeCompare(a.date))[0];
+        state.month = latest ? monthOf(latest.date) : monthOf(localISO(new Date()));
+        state.selectedDay = latest ? latest.date : null;
+        state.selectedAccountId = (latest && allAccounts().find(a => a.name === latest.account)?.id) || allAccounts()[0]?.id || '';
+        if (!PLANS.some(p => p.id === state.selectedPlanId)) state.selectedPlanId = PLANS[0].id;
+        state.statsMode = 'month';
+        state.statsRange = [`${state.month}-01`, `${state.month}-${String(daysInMonth(state.month)).padStart(2,'0')}`];
         toast('备份已导入 ✓');
         navigate('ledger');
       } catch {
@@ -1181,7 +1317,7 @@ function renderSettings() {
   $('#export-excel-open').onclick = openExportExcel;
   $('#reset-btn').onclick = () => {
     if (!confirm('重置会删除所有本地账单、账户、子分类和设置，确定继续吗？')) return;
-    [LS_KEY, LS_SAVED, LS_BUDGET, LS_SUBS, LS_SUB_ICONS, LS_ACCOUNTS, LS_BALANCES, LS_SETTINGS, LS_SAVINGS, LS_REIMB].forEach(k => localStorage.removeItem(k));
+    [LS_KEY, LS_SAVED, LS_BUDGET, LS_SUBS, LS_SUB_ICONS, LS_ACCOUNTS, LS_BALANCES, LS_SETTINGS, LS_SAVINGS, LS_REIMB, LS_CREDIT_LIMITS].forEach(k => localStorage.removeItem(k));
     load(); toast('已重置'); navigate('ledger');
   };
 }
@@ -1262,12 +1398,23 @@ function renderSearch() {
       const g = groups[day];
       const e = g.filter(t=>t.type==='expense').reduce((s,t)=>s+txNet(t),0);
       const i = g.filter(t=>t.type==='income').reduce((s,t)=>s+txNet(t),0);
-      return `<div class="sr-day"><b>${day.slice(5).replace('-','/')}</b> ${weekdayOf(day)}　支出: ${money(e)} 收入: ${money(i)} <span class="chev">⌄</span></div>
-        ${g.map(txnItemHTML).join('')}`;
+      const collapsed = state.collapsedDays.has('search:' + day);
+      return `<div class="sr-day" role="button" tabindex="0" aria-expanded="${!collapsed}" data-search-day="${day}"><b>${day.slice(5).replace('-','/')}</b> ${weekdayOf(day)}　支出: ${money(e)} 收入: ${money(i)} <span class="chev ${collapsed?'up':''}">⌄</span></div>
+        ${collapsed ? '' : g.map(txnItemHTML).join('')}`;
     }).join('') || '<div style="padding:40px;text-align:center;color:#6b6d78;font-size:12px">无匹配账单</div>';
   }
   $$('#search-results .txn-item').forEach(el => {
     el.style.borderBottom = '1px solid #23242c';
+  });
+  $$('#search-results .sr-day').forEach(head => {
+    const toggle = () => {
+      const day = head.dataset.searchDay;
+      const key = 'search:' + day;
+      state.collapsedDays.has(key) ? state.collapsedDays.delete(key) : state.collapsedDays.add(key);
+      renderSearch();
+    };
+    head.onclick = toggle;
+    head.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
   });
   bindTxActions('#search-results');
 }
@@ -1279,6 +1426,7 @@ function renderAdd() {
   $('#add-amount').textContent = add.amount;
   $('#add-offer').value = add.offer;
   $('#add-note').value = add.note;
+  $('#offer-field').style.display = add.type === 'expense' ? '' : 'none';
   $('#pick-account').textContent = (add.type === 'transfer' ? '💳 转出 ' : '💳 ') + add.account;
   if (add.type === 'transfer') {
     $('#pick-cat').textContent = '🏦 转入 ' + add.toAccount;
@@ -1357,10 +1505,23 @@ function renderSubRow() {
     const icon = custom && custom.image
       ? `<img class="sub-ico" src="${custom.image}" alt="">`
       : `<span class="sub-ico">${esc(custom && custom.icon ? custom.icon : '')}</span>`;
-    return `<button class="sub-chip ${add.sub===s?'on':''}" data-sub="${esc(s)}">${icon}${esc(s)}</button>`;
+    const canManage = (state.userSubs[add.cat] || []).includes(s);
+    return `<div class="sub-chip ${add.sub===s?'on':''}" role="button" tabindex="0" aria-pressed="${add.sub===s}" data-sub="${esc(s)}">
+      ${icon}<span>${esc(s)}</span>
+      ${canManage ? `<span class="sub-chip-actions"><button type="button" data-sub-action="rename" data-sub="${esc(s)}" title="重命名">✏️</button><button type="button" data-sub-action="delete" data-sub="${esc(s)}" title="删除">🗑️</button></span>` : ''}
+    </div>`;
   }).join('') +
     `<button class="sub-add" id="sub-add-btn">＋ 新建子分类</button>`;
-  $$('#sub-row .sub-chip').forEach(c => c.onclick = () => { add.sub = c.dataset.sub; renderAdd(); });
+  $$('#sub-row .sub-chip').forEach(c => {
+    const select = () => { add.sub = c.dataset.sub; renderAdd(); };
+    c.onclick = select;
+    c.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(); } };
+  });
+  $$('#sub-row [data-sub-action]').forEach(button => button.onclick = e => {
+    e.stopPropagation();
+    if (button.dataset.subAction === 'rename') renameUserSub(add.cat, button.dataset.sub);
+    else deleteUserSub(add.cat, button.dataset.sub);
+  });
   $('#sub-add-btn').onclick = () => { add.creatingSub = true; renderAdd(); };
 }
 
@@ -1419,7 +1580,7 @@ function saveAccount() {
   if (!name) { toast('请输入账户名称'); return; }
   if (name.length > 16) { toast('账户名称不能超过 16 个字'); return; }
   if (allAccounts().some(a => a.name === name && a.id !== state.accountEditingId)) { toast('账户名称已存在'); return; }
-  let balance = parseFloat($('#acc-form-balance').value || '0');
+  let balance = finiteAmount($('#acc-form-balance').value || '0');
   if (isNaN(balance)) { toast('请输入有效的初始余额'); return; }
   if (accountForm.group === 'credit' && balance > 0) balance = -balance;
   const editing = state.accountEditingId ? state.userAccounts.find(a => a.id === state.accountEditingId) : null;
@@ -1468,11 +1629,21 @@ function deleteAccount(account) {
     ? `该账户还有 ${related.length} 笔账单。删除账户会同时删除这些账单，确定继续吗？`
     : '确定删除这个账户吗？';
   if (!confirm(message)) return;
+  state.reimbursements.forEach(row => {
+    if (row.accountId === account.id) {
+      if (row.status === 'in') row.status = 'done';
+      row.txId = '';
+      row.accountId = '';
+    }
+  });
+  saveReimbursements();
   state.txs = state.txs.filter(t => t.account !== account.name && t.toAccount !== account.name);
   state.userAccounts = state.userAccounts.filter(a => a.id !== account.id);
   delete state.userBalances[account.id];
+  delete state.creditLimits[account.id];
   localStorage.setItem(LS_ACCOUNTS, JSON.stringify(state.userAccounts));
   localStorage.setItem(LS_BALANCES, JSON.stringify(state.userBalances));
+  localStorage.setItem(LS_CREDIT_LIMITS, JSON.stringify(state.creditLimits));
   saveTxs();
   state.selectedAccountId = allAccounts()[0]?.id || '';
   renderAssets();
@@ -1588,6 +1759,18 @@ function saveTx() {
     saveAccountBalance(toAccount, accountBalance(toAccount) + (add.type === 'expense' ? -amount : amount));
   }
   saveTxs();
+  const linkedReimb = state.reimbursements.find(r => r.txId === tx.id);
+  if (linkedReimb) {
+    if (tx.type !== 'income') {
+      linkedReimb.status = 'done';
+      linkedReimb.txId = '';
+    } else {
+      linkedReimb.amount = tx.amount;
+      linkedReimb.date = tx.date;
+      linkedReimb.accountId = allAccounts().find(a => a.name === tx.account)?.id || '';
+    }
+    saveReimbursements();
+  }
   $('#add-overlay').classList.add('hidden');
   toast(editingTx ? '账单已更新 ✓' : '已记一笔 ✓');
   state.editingTxId = '';
@@ -1606,8 +1789,7 @@ function parseDT() {
 }
 function defaultDT() {
   const now = new Date();
-  const date = state.selectedDay && monthOf(state.selectedDay) === state.month ? state.selectedDay : `${state.month}-01`;
-  return `${date}T${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`;
+  return `${localISO(now)}T${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`;
 }
 function openAdd() {
   add.amount = '0';
@@ -1656,7 +1838,9 @@ function renderTimeCalendar() {
   grid.innerHTML = '';
   for (let i = 0; i < firstWeekday; i++) grid.insertAdjacentHTML('beforeend', '<div class="time-cal-day blank"></div>');
   for (let day = 1; day <= dim; day++) {
-    grid.insertAdjacentHTML('beforeend', `<div class="time-cal-day ${day===tp.d?'sel':''}" data-day="${day}">${day}</div>`);
+    const today = localISO(new Date());
+    const key = `${tp.y}-${pad2(tp.mo)}-${pad2(day)}`;
+    grid.insertAdjacentHTML('beforeend', `<div class="time-cal-day ${day===tp.d?'sel':''} ${key===today?'today':''}" data-day="${day}">${day}</div>`);
   }
   $$('#time-cal-grid .time-cal-day:not(.blank)').forEach(el => el.onclick = () => {
     tp.d = +el.dataset.day;
@@ -1673,19 +1857,24 @@ function buildTimeWheels() {
   const mins = Array.from({ length: 60 }, (_, i) => i);
   const secs = Array.from({ length: 60 }, (_, i) => i);
   renderTimeCalendar();
-  WHEEL.h  = addWheelCol(cols, hours,  tp.h,  v => { tp.h = v; updateTimeValue(); }, pad2);
-  WHEEL.mi = addWheelCol(cols, mins,   tp.mi, v => { tp.mi = v; updateTimeValue(); }, pad2);
-  WHEEL.s  = addWheelCol(cols, secs,   tp.s,  v => { tp.s = v; updateTimeValue(); }, pad2);
+  WHEEL.h  = addWheelCol(cols, hours,  tp.h,  v => { tp.h = v; updateTimeValue(); }, pad2, '小时');
+  WHEEL.mi = addWheelCol(cols, mins,   tp.mi, v => { tp.mi = v; updateTimeValue(); }, pad2, '分钟');
+  WHEEL.s  = addWheelCol(cols, secs,   tp.s,  v => { tp.s = v; updateTimeValue(); }, pad2, '秒');
   updateTimeValue();
 }
-function addWheelCol(parent, values, sel, onChange, fmt) {
+function addWheelCol(parent, values, sel, onChange, fmt, label = '') {
   const el = document.createElement('div');
   el.className = 'wheel-col';
+  el.setAttribute('role', 'listbox');
+  el.setAttribute('aria-label', label);
+  el.tabIndex = 0;
   const mkSpacer = () => { const s = document.createElement('div'); s.className = 'wheel-spacer'; return s; };
   el.appendChild(mkSpacer());
   values.forEach(v => {
     const it = document.createElement('div');
     it.className = 'wheel-item' + (v === sel ? ' cur' : '');
+    it.setAttribute('role', 'option');
+    it.setAttribute('aria-selected', String(v === sel));
     it.textContent = fmt(v);
     el.appendChild(it);
   });
@@ -1712,10 +1901,27 @@ function bindWheelScroll(w) {
       w.onChange(w.values[idx]);
     }, 60);
   };
+  w.el.addEventListener('keydown', e => {
+    const current = Math.max(0, Math.min(w.values.length - 1, Math.round(w.el.scrollTop / ITEM_H)));
+    let next = current;
+    if (e.key === 'ArrowUp') next = current - 1;
+    else if (e.key === 'ArrowDown') next = current + 1;
+    else if (e.key === 'PageUp') next = current - 5;
+    else if (e.key === 'PageDown') next = current + 5;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = w.values.length - 1;
+    else return;
+    e.preventDefault();
+    setWheelIndex(w, next);
+  });
 }
 function setWheelIndex(w, idx) {
   const safeIdx = Math.max(0, Math.min(w.values.length - 1, idx));
-  w.el.querySelectorAll('.wheel-item').forEach((it, i) => it.classList.toggle('cur', i === safeIdx));
+  clearTimeout(w.tm);
+  w.el.querySelectorAll('.wheel-item').forEach((it, i) => {
+    it.classList.toggle('cur', i === safeIdx);
+    it.setAttribute('aria-selected', String(i === safeIdx));
+  });
   w.onChange(w.values[safeIdx]);
   w.el.scrollTo({ top:safeIdx * ITEM_H, behavior:'smooth' });
 }
@@ -1728,6 +1934,8 @@ function rebuildWheelCol(w, values, sel, fmt) {
   values.forEach(v => {
     const it = document.createElement('div');
     it.className = 'wheel-item' + (v === sel ? ' cur' : '');
+    it.setAttribute('role', 'option');
+    it.setAttribute('aria-selected', String(v === sel));
     it.textContent = fmt(v);
     el.appendChild(it);
   });
@@ -1848,6 +2056,7 @@ function bind() {
   $$('.mode-pill').forEach(p => p.onclick = () => { state.savingsMode = p.dataset.mode; const plans = PLANS.filter(x=>x.mode===p.dataset.mode); if (plans.length) state.selectedPlanId = plans[0].id; renderSavings(); });
 
   $$('.add-tab').forEach(t => t.onclick = () => {
+    $('#acc-menu').classList.add('hidden');
     add.type = t.dataset.type;
     if (add.type !== 'transfer') {
       add.cat = add.type === 'expense' ? '餐饮' : '副业';
@@ -1861,9 +2070,10 @@ function bind() {
   $('#add-offer').oninput = e => add.offer = e.target.value;
   $('#add-note').oninput = e => add.note = e.target.value;
   $('#pick-sub').onclick = () => { add.creatingSub = true; renderSubRow(); };
-  $('#pick-datetime').onclick = openTimePanel;
+  $('#pick-datetime').onclick = () => { $('#acc-menu').classList.add('hidden'); openTimePanel(); };
   $('#time-confirm').onclick = confirmTime;
   $('#time-cancel').onclick = () => $('#time-overlay').classList.add('hidden');
+  $('#time-overlay').onclick = e => { if (e.target === e.currentTarget) $('#time-overlay').classList.add('hidden'); };
   $('#export-excel').onclick = downloadExportExcel;
   $('#export-cancel').onclick = closeExportExcel;
   $('#export-close').onclick = closeExportExcel;
@@ -1872,7 +2082,7 @@ function bind() {
   $('#export-from').oninput = () => { $$('#export-quick .export-chip').forEach(chip => chip.classList.remove('on')); updateExportPreview(); };
   $('#export-to').oninput = () => { $$('#export-quick .export-chip').forEach(chip => chip.classList.remove('on')); updateExportPreview(); };
   $('#pick-account').onclick = () => openAccountMenu('from');
-  $('#pick-cat').onclick = () => { if (add.type === 'transfer') openAccountMenu('to'); };
+  $('#pick-cat').onclick = () => { $('#acc-menu').classList.add('hidden'); if (add.type === 'transfer') openAccountMenu('to'); };
   $('#time-prev-month').onclick = () => shiftTimeMonth(-1);
   $('#time-next-month').onclick = () => shiftTimeMonth(1);
   $('#pick-book').onclick = () => toast('默认账本：联认账本_二');
@@ -1886,7 +2096,13 @@ function bind() {
   $('#prompt-input').onkeydown = e => { if (e.key === 'Enter') finishAppPrompt(e.target.value); };
 
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { $('#search-overlay').classList.add('hidden'); $('#add-overlay').classList.add('hidden'); $('#time-overlay').classList.add('hidden'); $('#export-overlay').classList.add('hidden'); $('#account-overlay').classList.add('hidden'); finishAppPrompt(null); }
+    if (e.key !== 'Escape') return;
+    if (!$('#prompt-overlay').classList.contains('hidden')) { finishAppPrompt(null); return; }
+    if (!$('#account-overlay').classList.contains('hidden')) { closeAccountModal(); return; }
+    if (!$('#time-overlay').classList.contains('hidden')) { $('#time-overlay').classList.add('hidden'); return; }
+    if (!$('#export-overlay').classList.contains('hidden')) { closeExportExcel(); return; }
+    if (!$('#add-overlay').classList.contains('hidden')) { closeAdd(); return; }
+    if (!$('#search-overlay').classList.contains('hidden')) $('#search-overlay').classList.add('hidden');
   });
 }
 
