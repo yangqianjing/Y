@@ -29,7 +29,7 @@
     <section id="page-ledger" class="page light active">
       <header class="topbar">
         <div class="topbar-left">
-          <button class="book-chip" id="book-chip">📒 联认账本_二 <span class="chev">▾</span></button>
+          <span class="book-chip" id="book-chip">📒 本地账本</span>
         </div>
         <div class="topbar-title">账本</div>
         <div class="topbar-right">
@@ -117,7 +117,13 @@
           <b id="stats-range-title">2024年5月26日 ~ 6月1日</b>
           <button class="round-btn small" id="stats-next">▶</button>
         </div>
-        <button class="pill-btn" id="stats-filter">✂</button>
+        <button class="pill-btn" id="stats-filter">📅 自定义</button>
+      </div>
+      <div class="stats-filter-panel hidden" id="stats-filter-panel">
+        <label>开始<input type="date" id="stats-filter-from"></label>
+        <label>结束<input type="date" id="stats-filter-to"></label>
+        <button class="set-btn" id="stats-filter-apply">应用</button>
+        <button class="set-btn" id="stats-filter-reset">重置</button>
       </div>
       <div class="stats-grid">
         <div class="stats-col">
@@ -234,6 +240,7 @@
       <button class="filter-chip" data-filter="more">更多 ⌄</button>
       <button class="filter-chip" data-filter="sort" id="sort-chip">排序 ⌄</button>
     </div>
+    <div class="search-filter-panel hidden" id="search-filter-panel"></div>
     <div class="search-totals" id="search-totals"></div>
     <div class="search-results" id="search-results"></div>
   </div>
@@ -260,6 +267,10 @@
     <div class="cat-picker" id="cat-picker"></div>
     <div class="sub-row" id="sub-row"></div>
     <button class="dt-chip" id="pick-datetime">📅 选择时间</button>
+    <div class="add-extra">
+      <label>优惠<input id="add-offer" type="number" min="0" step="0.01" placeholder="0.00"></label>
+      <label>备注<input id="add-note" maxlength="60" placeholder="可选"></label>
+    </div>
     <div class="keypad">
       <button data-key="1">1</button><button data-key="2">2</button><button data-key="3">3</button><button class="fn" data-key="ac">AC</button>
       <button data-key="4">4</button><button data-key="5">5</button><button data-key="6">6</button><button class="fn" data-key="cny">CNY</button>
@@ -339,7 +350,7 @@
 <div class="overlay hidden" id="account-overlay">
   <div class="account-panel">
     <div class="account-head">
-      <div><b>新增资金账户</b><span>账户会保存在本机</span></div>
+      <div><b id="account-modal-title">新增资金账户</b><span>账户会保存在本机</span></div>
       <button class="export-close" id="account-close">✕</button>
     </div>
     <label class="account-field"><span>账户名称</span><input id="acc-form-name" maxlength="16" placeholder="例如：微信钱包"></label>
@@ -351,11 +362,29 @@
       </select>
     </label>
     <label class="account-field"><span>初始余额</span><input id="acc-form-balance" type="number" step="0.01" placeholder="信用卡填写欠款"></label>
-    <label class="account-field"><span>图标</span><input id="acc-form-icon" maxlength="4" placeholder="💳"></label>
+    <div class="account-field"><span>图标</span>
+      <div class="account-icon-row">
+        <div class="account-icon-preview" id="acc-icon-preview">💳</div>
+        <input id="acc-form-icon" maxlength="4" placeholder="💳">
+        <label class="account-upload">上传图片<input type="file" id="acc-form-image" accept="image/*" hidden></label>
+        <button class="set-btn" id="acc-image-clear">清除</button>
+      </div>
+    </div>
     <div class="account-field"><span>颜色</span><div class="color-picker" id="acc-color-picker"></div></div>
     <div class="time-actions">
       <button class="time-btn ghost" id="account-cancel">取消</button>
       <button class="time-btn primary" id="account-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="prompt-overlay">
+  <div class="account-panel">
+    <div><b id="prompt-title">请输入</b></div>
+    <label class="account-field"><span>金额</span><input id="prompt-input" inputmode="decimal"></label>
+    <div class="time-actions">
+      <button class="time-btn ghost" id="prompt-cancel">取消</button>
+      <button class="time-btn primary" id="prompt-confirm">确定</button>
     </div>
   </div>
 </div>
