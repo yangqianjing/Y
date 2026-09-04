@@ -1121,7 +1121,7 @@ function renderSettings() {
     <div class="set-item"><div class="s-label">导出 Excel<div class="s-desc">选择账单时间，导出标准 .xlsx</div></div><button class="set-btn" id="export-excel-open">选择时间</button></div>
     <div class="set-item"><div class="s-label">重置示例数据<div class="s-desc">清除本地修改，恢复演示数据</div></div><button class="set-btn danger" id="reset-btn">重置</button></div>
     <div class="set-group-title">关于</div>
-    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.9 · 本地完整版 · 数据仅保存在本机</div></div></div>`;
+    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.10 · 本地完整版 · 数据仅保存在本机</div></div></div>`;
   $('#save-budget').onclick = () => {
     const v = parseFloat($('#budget-input').value);
     if (isNaN(v) || v <= 0) { toast('请输入有效的预算金额'); return; }
@@ -1135,7 +1135,7 @@ function renderSettings() {
   $('#currency-select').onchange = e => { state.currency = e.target.value; saveSettings(); refreshPage(); toast('货币显示已更新'); };
   $('#week-start-select').onchange = e => { state.weekStart = +e.target.value; saveSettings(); refreshPage(); toast('每周开始日已更新'); };
   $('#export-btn').onclick = () => {
-    const backup = { app:'iCost Web', version:'1.0.9', exportedAt:new Date().toISOString(), txs:state.txs, accounts:state.userAccounts, balances:state.userBalances, budget:state.budget, savedCards:[...state.savedCards], userSubs:state.userSubs, subIcons:state.subIcons, settings:{ currency:state.currency, weekStart:state.weekStart }, savingsDeposits:state.savingsDeposits, reimbursements:state.reimbursements };
+    const backup = { app:'iCost Web', version:'1.0.10', exportedAt:new Date().toISOString(), txs:state.txs, accounts:state.userAccounts, balances:state.userBalances, budget:state.budget, savedCards:[...state.savedCards], userSubs:state.userSubs, subIcons:state.subIcons, settings:{ currency:state.currency, weekStart:state.weekStart }, savingsDeposits:state.savingsDeposits, reimbursements:state.reimbursements };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type:'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = 'icost-web-backup.json'; a.click();
@@ -1527,8 +1527,13 @@ function openAccountMenu(kind) {
   const menu = $('#acc-menu');
   if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
   const selected = kind === 'to' ? add.toAccount : add.account;
-  menu.innerHTML = allAccounts().map(a => `<button class="acc-opt ${selected===a.name?'on':''}" data-acc="${esc(a.name)}">${a.icon} ${esc(a.name)}</button>`).join('') +
-    `<button class="acc-opt add" data-acc="__add__">＋ 新增账户</button>`;
+  menu.innerHTML = allAccounts().map(a => `
+    <button type="button" class="acc-opt ${selected===a.name?'on':''}" aria-pressed="${selected===a.name}" data-acc="${esc(a.name)}">
+      <span class="acc-menu-ico" style="background:${a.color}">${accountIconHTML(a)}</span>
+      <span class="acc-menu-name">${esc(a.name)}</span>
+      ${selected===a.name?'<span class="acc-menu-check">✓</span>':''}
+    </button>`).join('') +
+    `<button class="acc-opt add" data-acc="__add__"><span class="acc-menu-ico muted">＋</span><span class="acc-menu-name">新增账户</span></button>`;
   menu.classList.remove('hidden');
   $$('#acc-menu .acc-opt').forEach(o => o.onclick = () => {
     if (o.dataset.acc === '__add__') { menu.classList.add('hidden'); openAccountModal(kind); return; }

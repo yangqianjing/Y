@@ -370,10 +370,16 @@ input{font-family:inherit;}
 .add-pickers{display:flex;gap:8px;}
 .pick-chip{flex:1;font-size:11px;background:#f2f3f6;border-radius:9px;padding:8px 4px;color:#5a5f6a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .pick-chip.on{background:var(--blue-soft);color:var(--blue);}
-.acc-menu{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;background:#f7f8fa;border:1px solid #e3e5ea;border-radius:10px;padding:8px;}
+.acc-menu{display:flex;flex-direction:column;gap:8px;max-height:268px;overflow-y:auto;background:#f7f8fa;border:1px solid #e3e5ea;border-radius:10px;padding:8px;}
 .acc-menu.hidden{display:none;}
-.acc-opt{font-size:11px;background:#fff;border:1px solid #e3e5ea;border-radius:8px;padding:7px 8px;color:#17181c;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:.12s;}
+.acc-opt{display:flex;align-items:center;gap:8px;min-height:44px;flex:none;font-size:12px;background:#fff;border:1px solid #e3e5ea;border-radius:9px;padding:6px 9px;color:#17181c;text-align:left;transition:background .16s,border-color .16s,transform .12s;}
+.acc-opt:active{transform:scale(.995);}
 .acc-opt.on{border-color:var(--blue);background:var(--blue-soft);color:var(--blue);font-weight:600;}
+.acc-menu-ico{width:24px;height:24px;flex:none;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;color:#fff;overflow:hidden;}
+.acc-menu-ico.muted{background:#e7e9ee;color:#5a5f6a;}
+.acc-menu-ico .icon-img{width:100%;height:100%;object-fit:cover;background:#fff;}
+.acc-menu-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.acc-menu-check{font-size:11px;color:var(--blue);}
 .cat-picker{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;max-height:118px;overflow-y:auto;}
 .sub-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-height:24px;}
 .sub-chip{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;background:#f2f3f6;color:#5a5f6a;padding:4px 11px 4px 6px;border-radius:14px;transition:.12s;}
