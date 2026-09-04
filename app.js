@@ -12,6 +12,8 @@ const LS_BUDGET = 'icostweb_budget';
 const LS_SAVED = 'icostweb_saved';
 const LS_SUBS = 'icostweb_subs_v1';
 const LS_SUB_ICONS = 'icostweb_sub_icons_v1';
+const LS_ACCOUNTS = 'icostweb_accounts_v1';
+const LS_BALANCES = 'icostweb_balances_v1';
 const REIMB = { pending:108.00, done:0, in:0 };
 const FLOW = [ ['还款',0],['收款',0],['转账',1000],['充值',50],['借入',0],['借出',1000] ];
 const HOLIDAYS = { '2024-05-01':'劳动节', '2024-06-01':'儿童节' };
@@ -36,6 +38,8 @@ const state = {
   budget: BUDGET,
   userSubs: {},
   subIcons: {},
+  userAccounts: [],
+  userBalances: {},
   searchOpen: false,
   searchQuery: '',
   sortDesc: false,
@@ -58,6 +62,14 @@ function load() {
     const s = localStorage.getItem(LS_SUB_ICONS);
     state.subIcons = s ? JSON.parse(s) : {};
   } catch { state.subIcons = {}; }
+  try {
+    const a = localStorage.getItem(LS_ACCOUNTS);
+    state.userAccounts = a ? JSON.parse(a) : [];
+  } catch { state.userAccounts = []; }
+  try {
+    const b = localStorage.getItem(LS_BALANCES);
+    state.userBalances = b ? JSON.parse(b) : {};
+  } catch { state.userBalances = {}; }
 }
 function saveTxs() { localStorage.setItem(LS_KEY, JSON.stringify(state.txs)); }
 
@@ -72,9 +84,30 @@ const pad2 = n => String(n).padStart(2, '0');
 function daysInMonth(m) { const [y, mo] = m.split('-').map(Number); return new Date(y, mo, 0).getDate(); }
 function fmtMonthTitle(m) { const [y, mo] = m.split('-'); return `${y}年${+mo}月`; }
 function addMonth(m, delta) { const [y, mo] = m.split('-').map(Number); const d = new Date(y, mo - 1 + delta, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+function addDays(d, delta) { const date = new Date(d + 'T00:00:00'); date.setDate(date.getDate() + delta); return localISO(date); }
 function txNet(t) { return t.amount - (t.offer || 0); }
 function catOf(name) { return CATS[name] || { icon:'🧾', color:'#A0A6B1', subs:[] }; }
-function accOf(id) { return ACCOUNTS.find(a => a.id === id) || { name:id, color:'#A0A6B1', icon:'💳' }; }
+function allAccounts() { return [...ACCOUNTS, ...state.userAccounts]; }
+function accOf(id) { return allAccounts().find(a => a.id === id) || { id, name:id, color:'#A0A6B1', icon:'💳' }; }
+function accountBalance(account) {
+  if (state.userBalances[account.id] !== undefined) return state.userBalances[account.id];
+  return account.balance !== undefined ? account.balance : (ASSET_AMOUNTS[account.id] || 0);
+}
+function saveAccountBalance(account, value) {
+  const amount = Math.round(value * 100) / 100;
+  if (ACCOUNTS.some(a => a.id === account.id)) state.userBalances[account.id] = amount;
+  else {
+    account.balance = amount;
+    localStorage.setItem(LS_ACCOUNTS, JSON.stringify(state.userAccounts));
+  }
+  localStorage.setItem(LS_BALANCES, JSON.stringify(state.userBalances));
+}
+function assetSummary() {
+  const balances = allAccounts().map(a => ({ group:a.group, value:accountBalance(a) }));
+  const total = balances.filter(b => b.group !== 'credit').reduce((s,b)=>s+b.value,0);
+  const debt = balances.filter(b => b.group === 'credit').reduce((s,b)=>s+Math.abs(b.value),0);
+  return { total, debt, net: total - debt, fund: balances.filter(b=>b.group==='fund').reduce((s,b)=>s+b.value,0), recharge: balances.filter(b=>b.group==='recharge').reduce((s,b)=>s+b.value,0) };
+}
 function subsOf(cat) {
   const built = (CATS[cat] && CATS[cat].subs) || [];
   const user = state.userSubs[cat] || [];
@@ -314,7 +347,7 @@ function renderSummary() {
     { dot:'#FF5D5D', label:'总支出', amount:exp, sub:[['总收入', money(inc)],['结余', money(inc-exp)]] },
     { dot:'#34C77B', label:'剩余预算', amount:Math.max(remainBudget,0), sub:[['总预算', money(state.budget)],['剩余日均', money(Math.max(remainBudget,0)/dim)]], arrow:true },
     { dot:'#4D9FFF', label:'待报销', amount:REIMB.pending, sub:[['已报销', money(REIMB.done)],['报销入账', money(REIMB.in)]], arrow:true },
-    { dot:'#FFA53C', label:'净资产', amount:ASSET_SNAPSHOT.net, sub:[['总资产', money(ASSET_SNAPSHOT.total)],['总负债', money(ASSET_SNAPSHOT.debt)]], arrow:true },
+    { dot:'#FFA53C', label:'净资产', amount:assetSummary().net, sub:[['总资产', money(assetSummary().total)],['总负债', money(assetSummary().debt)]], arrow:true },
   ];
   $('#summary-cards').innerHTML = cards.map(c => `
     <div class="sum-card">
@@ -536,23 +569,25 @@ const ASSET_AMOUNTS = { alipay:8483.06, cmb:34384.00, gjj1:1200.00, gjj2:1750.00
 
 function renderAssets() {
   const left = $('#assets-left');
+  const accounts = allAccounts();
+  const summary = assetSummary();
   const groups = [
-    { key:'fund', label:'资金账户', ids:['alipay','cmb','gjj1','gjj2'], headRight:`余额: ${money(ASSET_SNAPSHOT.fund)} ⌄` },
-    { key:'credit', label:'信用账户', ids:['citic'], headRight:`欠款: ${money(70.90)} ⌄` },
-    { key:'recharge', label:'充值账户', ids:['bus','octopus'], headRight:`余额: ${money(ASSET_SNAPSHOT.recharge)} ⌄` },
+    { key:'fund', label:'资金账户', ids:accounts.filter(a=>a.group==='fund').map(a=>a.id), headRight:`余额: ${money(summary.fund)} ⌄` },
+    { key:'credit', label:'信用账户', ids:accounts.filter(a=>a.group==='credit').map(a=>a.id), headRight:`欠款: ${money(summary.debt)} ⌄` },
+    { key:'recharge', label:'充值账户', ids:accounts.filter(a=>a.group==='recharge').map(a=>a.id), headRight:`余额: ${money(summary.recharge)} ⌄` },
   ];
   left.innerHTML = `
     <div class="card networth-card">
       <div class="nw-label">净资产 <span>👁</span></div>
-      <div class="nw-amount"><span class="yen">¥</span>${fmt(ASSET_SNAPSHOT.net)}</div>
-      <div class="nw-sub"><span>总资产 ${money(ASSET_SNAPSHOT.total)}</span><span>总负债 ${money(ASSET_SNAPSHOT.debt)}</span></div>
+      <div class="nw-amount"><span class="yen">¥</span>${fmt(summary.net)}</div>
+      <div class="nw-sub"><span>总资产 ${money(summary.total)}</span><span>总负债 ${money(summary.debt)}</span></div>
     </div>
     ${groups.map(g => `
       <div>
         <div class="group-head">${g.label} <span class="cnt">(${g.ids.length})</span><span class="g-right">${g.headRight}</span></div>
         ${g.ids.map(id => {
-          const a = accOf(id), v = ASSET_AMOUNTS[id];
-          const sub = a.credit ? `[信用卡] 10天后出账<br>可用额度: ${money(a.limit)}` : esc(a.sub);
+          const a = accOf(id), v = accountBalance(a);
+          const sub = a.credit ? `[信用卡] 10天后出账${a.limit !== undefined ? `<br>可用额度: ${money(a.limit)}` : ''}` : esc(a.sub);
           return `<div class="acc-item ${state.selectedAccountId===id?'sel':''}" data-acc="${id}">
             <div class="acc-ico" style="background:${a.color}">${a.icon}</div>
             <div class="acc-mid"><div class="acc-name">${esc(a.name)}</div><div class="acc-sub">${sub}</div></div>
@@ -567,12 +602,12 @@ function renderAssets() {
 function renderAssetDetail() {
   const right = $('#assets-right');
   const a = accOf(state.selectedAccountId);
-  const txs = state.txs.filter(t => t.account === a.name).sort((x,y)=> y.date.localeCompare(x.date) || y.time.localeCompare(x.time));
+  const txs = state.txs.filter(t => t.account === a.name || t.toAccount === a.name).sort((x,y)=> y.date.localeCompare(x.date) || y.time.localeCompare(x.time));
   const monthTxs = txs.filter(t => monthOf(t.date) === state.month);
-  const out = monthTxs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
-  const inc = monthTxs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+  const out = monthTxs.filter(t => t.type === 'expense' || (t.type === 'transfer' && t.account === a.name)).reduce((s,t)=>s+t.amount,0);
+  const inc = monthTxs.filter(t => t.type === 'income' || (t.type === 'transfer' && t.toAccount === a.name)).reduce((s,t)=>s+t.amount,0);
   const isCredit = !!a.credit;
-  const balance = isCredit ? -70.90 : (ASSET_AMOUNTS[a.id] || 0);
+  const balance = accountBalance(a);
   const months = {};
   txs.forEach(t => (months[monthOf(t.date)] = months[monthOf(t.date)] || []).push(t));
   right.innerHTML = `
@@ -580,16 +615,16 @@ function renderAssetDetail() {
       <div class="dt-head">
         <div class="acc-ico" style="background:${a.color};width:38px;height:38px">${a.icon}</div>
         <div class="dt-name">${esc(a.name)}</div>
-        <div class="dt-actions"><button class="dt-btn">${isCredit?'还款':'转入'}</button><button class="dt-btn">更多</button></div>
+        <div class="dt-actions"><button class="dt-btn" data-action="record">${isCredit?'还款':'转入'}</button><button class="dt-btn" data-action="balance">调整余额</button></div>
       </div>
       <div class="dt-amount-label">${isCredit?'当前欠款':'当前余额'} (CNY)</div>
       <div class="dt-amount ${isCredit?'edit':''}"><span class="yen">¥</span>${fmt(Math.abs(balance))} ${isCredit?'✏️':''}</div>
-      ${isCredit ? `<div class="dt-meta"><span>可用额度 <b>${money(a.limit)}</b></span><span>出账日 <b>10天后出账</b></span></div>` : `<div class="dt-meta"><span>本月流出 <b class="dt-out" style="color:var(--red)">${money(out)}</b></span><span>流入 <b style="color:var(--green)">${money(inc)}</b></span></div>`}
+      ${isCredit ? (a.limit !== undefined ? `<div class="dt-meta"><span>可用额度 <b>${money(a.limit)}</b></span><span>出账日 <b>10天后出账</b></span></div>` : '') : `<div class="dt-meta"><span>本月流出 <b class="dt-out" style="color:var(--red)">${money(out)}</b></span><span>流入 <b style="color:var(--green)">${money(inc)}</b></span></div>`}
       <div class="notice">ⓘ 关于金额调整 <span class="x">✕</span></div>
       ${Object.keys(months).sort().reverse().map(m => {
         const list = months[m];
-        const mo = list.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
-        const mi = list.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+        const mo = list.filter(t => t.type === 'expense' || (t.type === 'transfer' && t.account === a.name)).reduce((s,t)=>s+t.amount,0);
+        const mi = list.filter(t => t.type === 'income' || (t.type === 'transfer' && t.toAccount === a.name)).reduce((s,t)=>s+t.amount,0);
         return `<div class="bill-month">
           <div class="bm-head">
             <span class="bm-title">${m.slice(0,4)}年${+m.slice(5)}月</span>
@@ -601,7 +636,8 @@ function renderAssetDetail() {
       }).join('') || '<div style="padding:30px;text-align:center;color:var(--text2);font-size:12px">该账户暂无账单</div>'}
     </div>`;
   $$('#assets-right .notice .x').forEach(x => x.onclick = e => e.target.parentElement.style.display = 'none');
-  $$('#assets-right .dt-btn').forEach(b => b.onclick = () => toast('演示版：该功能暂未开放'));
+  $$('#assets-right .dt-btn[data-action="record"]').forEach(b => b.onclick = () => openAccountTransaction(a));
+  $$('#assets-right .dt-btn[data-action="balance"]').forEach(b => b.onclick = () => editAccountBalance(a));
 }
 
 /* ---------- 渲染：存钱页 ---------- */
@@ -869,7 +905,7 @@ function renderSettings() {
     <div class="set-item"><div class="s-label">导出 Excel<div class="s-desc">选择账单时间，导出标准 .xlsx</div></div><button class="set-btn" id="export-excel-open">选择时间</button></div>
     <div class="set-item"><div class="s-label">重置示例数据<div class="s-desc">清除本地修改，恢复演示数据</div></div><button class="set-btn danger" id="reset-btn">重置</button></div>
     <div class="set-group-title">关于</div>
-    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.7 · 网页预览版 · 数据仅保存在本浏览器</div></div></div>`;
+    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.8 · 网页预览版 · 数据仅保存在本浏览器</div></div></div>`;
   $('#save-budget').onclick = () => {
     const v = parseFloat($('#budget-input').value);
     if (isNaN(v) || v <= 0) { toast('请输入有效的预算金额'); return; }
@@ -879,12 +915,12 @@ function renderSettings() {
     renderLedger();
   };
   $('#export-btn').onclick = () => {
-    const blob = new Blob([JSON.stringify({ txs: state.txs }, null, 2)], { type:'application/json' });
+    const blob = new Blob([JSON.stringify({ txs: state.txs, accounts: state.userAccounts, balances: state.userBalances }, null, 2)], { type:'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = 'icost-web-backup.json'; a.click();
   };
   $('#export-excel-open').onclick = openExportExcel;
-  $('#reset-btn').onclick = () => { [LS_KEY, LS_SAVED, LS_BUDGET, LS_SUBS, LS_SUB_ICONS].forEach(k => localStorage.removeItem(k)); load(); toast('已重置'); navigate('ledger'); };
+  $('#reset-btn').onclick = () => { [LS_KEY, LS_SAVED, LS_BUDGET, LS_SUBS, LS_SUB_ICONS, LS_ACCOUNTS, LS_BALANCES].forEach(k => localStorage.removeItem(k)); load(); toast('已重置'); navigate('ledger'); };
 }
 
 /* ---------- 搜索 ---------- */
@@ -1016,19 +1052,98 @@ function renderSubRow() {
   $$('#sub-row .sub-chip').forEach(c => c.onclick = () => { add.sub = c.dataset.sub; renderAdd(); });
   $('#sub-add-btn').onclick = () => { add.creatingSub = true; renderAdd(); };
 }
+
+/* ---------- 资金账户 ---------- */
+const accountForm = { name:'', group:'fund', balance:'', icon:'💳', color:'#4D7BFE' };
+const ACCOUNT_COLORS = ['#4D7BFE','#4D9FFF','#2FBF71','#FF9F43','#FF5D5D','#FFD166','#9B6BFF','#A0A6B1'];
+
+function openAccountModal() {
+  accountForm.name = ''; accountForm.group = 'fund'; accountForm.balance = ''; accountForm.icon = '💳'; accountForm.color = '#4D7BFE';
+  $('#acc-form-name').value = '';
+  $('#acc-form-balance').value = '';
+  $('#acc-form-icon').value = accountForm.icon;
+  $('#acc-form-group').value = accountForm.group;
+  $('#acc-color-picker').innerHTML = ACCOUNT_COLORS.map(c => `<button class="color-dot ${c===accountForm.color?'on':''}" data-color="${c}" style="background:${c}"></button>`).join('');
+  $$('#acc-color-picker .color-dot').forEach(d => d.onclick = () => {
+    accountForm.color = d.dataset.color;
+    $$('#acc-color-picker .color-dot').forEach(x => x.classList.toggle('on', x === d));
+  });
+  $('#acc-form-icon').oninput = e => accountForm.icon = e.target.value.trim() || '💳';
+  $('#acc-form-group').onchange = e => accountForm.group = e.target.value;
+  $('#account-overlay').classList.remove('hidden');
+  $('#acc-form-name').focus();
+}
+
+function closeAccountModal() {
+  $('#account-overlay').classList.add('hidden');
+}
+
+function saveAccount() {
+  const name = $('#acc-form-name').value.trim();
+  if (!name) { toast('请输入账户名称'); return; }
+  if (name.length > 16) { toast('账户名称不能超过 16 个字'); return; }
+  if (allAccounts().some(a => a.name === name)) { toast('账户名称已存在'); return; }
+  let balance = parseFloat($('#acc-form-balance').value || '0');
+  if (isNaN(balance)) { toast('请输入有效的初始余额'); return; }
+  if (accountForm.group === 'credit' && balance > 0) balance = -balance;
+  const account = { id:'u' + Date.now(), name, group:accountForm.group, color:accountForm.color, icon:accountForm.icon, sub:accountForm.group === 'credit' ? '自定义信用卡' : '自定义账户', balance };
+  if (accountForm.group === 'credit') account.credit = true;
+  state.userAccounts.push(account);
+  localStorage.setItem(LS_ACCOUNTS, JSON.stringify(state.userAccounts));
+  closeAccountModal();
+  if (!$('#add-overlay').classList.contains('hidden')) {
+    add.account = account.name;
+    if (add.toAccount === add.account) add.toAccount = (allAccounts().find(a => a.name !== account.name) || {}).name || add.toAccount;
+    renderAdd();
+  } else {
+    state.selectedAccountId = account.id;
+    refreshPage();
+  }
+  toast('账户已添加 ✓');
+}
+
+function openAccountTransaction(account) {
+  openAdd();
+  if (account.credit) {
+    add.type = 'transfer';
+    add.toAccount = account.name;
+    const source = allAccounts().find(a => a.group === 'fund' && a.name !== account.name);
+    add.account = source ? source.name : (allAccounts().find(a => a.name !== account.name) || {}).name || add.account;
+  } else {
+    add.type = 'income';
+    add.account = account.name;
+    add.cat = '副业';
+    add.sub = subsOf(add.cat)[0] || '';
+  }
+  add.amount = '0';
+  add.creatingSub = false;
+  renderAdd();
+}
+
+function editAccountBalance(account) {
+  const value = prompt(`调整「${account.name}」当前余额（信用卡请输入欠款金额）`, Math.abs(accountBalance(account)).toFixed(2));
+  if (value === null) return;
+  const amount = parseFloat(value);
+  if (isNaN(amount) || amount < 0) { toast('请输入有效的余额'); return; }
+  saveAccountBalance(account, account.credit ? -amount : amount);
+  renderAssets();
+  toast('余额已更新 ✓');
+}
+
 function openAccountMenu(kind) {
   const menu = $('#acc-menu');
   if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
   const selected = kind === 'to' ? add.toAccount : add.account;
-  menu.innerHTML = ACCOUNTS.map(a => `<button class="acc-opt ${selected===a.name?'on':''}" data-acc="${esc(a.name)}">${a.icon} ${esc(a.name)}</button>`).join('');
+  menu.innerHTML = allAccounts().map(a => `<button class="acc-opt ${selected===a.name?'on':''}" data-acc="${esc(a.name)}">${a.icon} ${esc(a.name)}</button>`).join('') +
+    `<button class="acc-opt add" data-acc="__add__">＋ 新增账户</button>`;
   menu.classList.remove('hidden');
   $$('#acc-menu .acc-opt').forEach(o => o.onclick = () => {
     if (kind === 'to') add.toAccount = o.dataset.acc;
     else {
       add.account = o.dataset.acc;
-      if (add.toAccount === add.account) add.toAccount = (ACCOUNTS.find(a => a.name !== add.account) || {}).name || add.toAccount;
+      if (add.toAccount === add.account) add.toAccount = (allAccounts().find(a => a.name !== add.account) || {}).name || add.toAccount;
     }
-    if (add.toAccount === add.account) add.account = (ACCOUNTS.find(a => a.name !== add.toAccount) || {}).name || add.account;
+    if (add.toAccount === add.account) add.account = (allAccounts().find(a => a.name !== add.toAccount) || {}).name || add.account;
     menu.classList.add('hidden');
     renderAdd();
   });
@@ -1055,6 +1170,14 @@ function saveTx() {
   state.txs.push(transfer
     ? { id:'u'+Date.now(), date, time, type:add.type, cat:'转账', sub:'', amount, account:add.account, toAccount:add.toAccount }
     : { id:'u'+Date.now(), date, time, type:add.type, cat:add.cat, sub: add.sub || (c.subs && c.subs[0]) || '', amount, account:add.account });
+  const fromAccount = allAccounts().find(a => a.name === add.account);
+  const toAccount = transfer ? allAccounts().find(a => a.name === add.toAccount) : fromAccount;
+  if (transfer) {
+    if (fromAccount) saveAccountBalance(fromAccount, accountBalance(fromAccount) - amount);
+    if (toAccount) saveAccountBalance(toAccount, accountBalance(toAccount) + amount);
+  } else if (toAccount) {
+    saveAccountBalance(toAccount, accountBalance(toAccount) + (add.type === 'expense' ? -amount : amount));
+  }
   saveTxs();
   $('#add-overlay').classList.add('hidden');
   toast('已记一笔 ✓');
@@ -1209,6 +1332,16 @@ function navigate(page) {
   $('#app').classList.toggle('dark', page === 'savings');
   refreshPage();
 }
+
+function shiftStatsRange(delta) {
+  if (state.statsMode === 'week') {
+    state.statsRange = [addDays(state.statsRange[0], delta * 7), addDays(state.statsRange[1], delta * 7)];
+  } else {
+    const nextMonth = addMonth(state.statsRange[0].slice(0, 7), delta);
+    state.statsRange = [nextMonth + '-01', nextMonth + '-' + String(daysInMonth(nextMonth)).padStart(2, '0')];
+  }
+  renderStats();
+}
 function refreshPage() {
   if (state.page === 'ledger') renderLedger();
   else if (state.page === 'stats') renderStats();
@@ -1221,7 +1354,9 @@ function refreshPage() {
 function bind() {
   $$('.nav-item').forEach(n => n.onclick = () => navigate(n.dataset.page));
   $('#fab-add').onclick = openAdd;
-  $('#asset-quick-add').onclick = $('#savings-add').onclick = $('#asset-add').onclick = openAdd;
+  $('#asset-add').onclick = openAccountModal;
+  $('#asset-quick-add').onclick = openAdd;
+  $('#savings-add').onclick = openAdd;
   $('#open-search').onclick = () => { $('#search-overlay').classList.remove('hidden'); state.searchQuery=''; $('#search-input').value=''; renderSearch(); $('#search-input').focus(); };
   $('#search-cancel').onclick = () => $('#search-overlay').classList.add('hidden');
   $('#search-overlay').onclick = e => { if (e.target === e.currentTarget) $('#search-overlay').classList.add('hidden'); };
@@ -1253,7 +1388,8 @@ function bind() {
     else state.statsRange = ['2024-05-26','2024-06-01'];
     renderStats();
   };
-  $('#stats-prev').onclick = $('#stats-next').onclick = () => toast('演示版：切换统计区间暂未开放');
+  $('#stats-prev').onclick = () => shiftStatsRange(-1);
+  $('#stats-next').onclick = () => shiftStatsRange(1);
   $$('#stats-line-tabs .seg').forEach(s => s.onclick = () => { state.statsLineTab = s.dataset.mode; $$('#stats-line-tabs .seg').forEach(x=>x.classList.toggle('active',x===s)); renderStats(); });
   $$('#assets-line-tabs .seg').forEach(s => s.onclick = () => { state.assetsLineTab = s.dataset.mode; $$('#assets-line-tabs .seg').forEach(x=>x.classList.toggle('active',x===s)); renderStats(); });
   $$('#income-donut-tabs .seg').forEach(s => s.onclick = () => { state.incomeDonutTab = s.dataset.mode; $$('#income-donut-tabs .seg').forEach(x=>x.classList.toggle('active',x===s)); renderStats(); });
@@ -1287,9 +1423,13 @@ function bind() {
   $('#time-prev-month').onclick = () => shiftTimeMonth(-1);
   $('#time-next-month').onclick = () => shiftTimeMonth(1);
   $('#pick-book').onclick = () => toast('默认账本：联认账本_二');
+  $('#account-save').onclick = saveAccount;
+  $('#account-cancel').onclick = closeAccountModal;
+  $('#account-close').onclick = closeAccountModal;
+  $('#account-overlay').onclick = e => { if (e.target === e.currentTarget) closeAccountModal(); };
 
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { $('#search-overlay').classList.add('hidden'); $('#add-overlay').classList.add('hidden'); $('#time-overlay').classList.add('hidden'); $('#export-overlay').classList.add('hidden'); }
+    if (e.key === 'Escape') { $('#search-overlay').classList.add('hidden'); $('#add-overlay').classList.add('hidden'); $('#time-overlay').classList.add('hidden'); $('#export-overlay').classList.add('hidden'); $('#account-overlay').classList.add('hidden'); }
   });
 }
 

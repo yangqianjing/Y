@@ -336,6 +336,30 @@
   </div>
 </div>
 
+<div class="overlay hidden" id="account-overlay">
+  <div class="account-panel">
+    <div class="account-head">
+      <div><b>新增资金账户</b><span>账户会保存在本机</span></div>
+      <button class="export-close" id="account-close">✕</button>
+    </div>
+    <label class="account-field"><span>账户名称</span><input id="acc-form-name" maxlength="16" placeholder="例如：微信钱包"></label>
+    <label class="account-field"><span>账户类型</span>
+      <select id="acc-form-group">
+        <option value="fund">资金账户</option>
+        <option value="credit">信用账户</option>
+        <option value="recharge">充值账户</option>
+      </select>
+    </label>
+    <label class="account-field"><span>初始余额</span><input id="acc-form-balance" type="number" step="0.01" placeholder="信用卡填写欠款"></label>
+    <label class="account-field"><span>图标</span><input id="acc-form-icon" maxlength="4" placeholder="💳"></label>
+    <div class="account-field"><span>颜色</span><div class="color-picker" id="acc-color-picker"></div></div>
+    <div class="time-actions">
+      <button class="time-btn ghost" id="account-cancel">取消</button>
+      <button class="time-btn primary" id="account-save">保存</button>
+    </div>
+  </div>
+</div>
+
 <script src="data.js"></script>
 <script src="app.js"></script>
 </body>

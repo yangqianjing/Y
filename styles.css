@@ -319,6 +319,16 @@ input{font-family:inherit;}
 
 /* ---------- add modal ---------- */
 .add-panel{width:340px;background:#fff;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px;box-shadow:0 24px 80px rgba(0,0,0,.35);}
+.account-panel{width:min(360px,94vw);background:#fff;border-radius:24px;padding:20px;display:flex;flex-direction:column;gap:14px;box-shadow:0 28px 90px rgba(16,24,40,.36),0 8px 24px rgba(16,24,40,.10);}
+.account-head{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.account-head b{display:block;font-size:15px;}
+.account-head span{font-size:10.5px;color:#757b85;}
+.account-field{display:flex;flex-direction:column;gap:6px;font-size:10.5px;color:#757b85;}
+.account-field input,.account-field select{height:36px;border:1px solid #dfe2e8;border-radius:10px;padding:0 10px;font-size:12px;outline:none;color:#17181c;background:#fff;}
+.account-field input:focus,.account-field select:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(77,123,254,.12);}
+.color-picker{display:flex;flex-wrap:wrap;gap:8px;}
+.color-dot{width:22px;height:22px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.08);}
+.color-dot.on{box-shadow:0 0 0 2px var(--blue);}
 .add-head{display:flex;align-items:center;gap:8px;}
 .add-tabs{flex:1;display:flex;background:#f2f3f6;border-radius:12px;padding:4px;}
 .add-close{width:28px;height:28px;border-radius:50%;background:#f2f3f6;color:#9aa0ab;font-size:12px;display:flex;align-items:center;justify-content:center;transition:.12s;}
