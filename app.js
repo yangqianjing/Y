@@ -336,7 +336,7 @@ function renderLedgerCharts() {
   const vals = data.map(d=>d.v);
   const avg = vals.reduce((s,v)=>s+v,0)/vals.length;
   const peak = data.reduce((a,b)=>b.v>a.v?b:a, data[0]);
-  $('#expense-peak').textContent = `${+state.month.slice(5)}月${peak.day}日 ${money(peak.v)} >`;
+  $('#expense-peak').textContent = vals.some(v => v !== 0) ? `${+state.month.slice(5)}月${peak.day}日 ${money(peak.v)} >` : '—';
   barChart($('#ledger-bar-chart'), data, { color: mode==='income' ? '#2FBF71' : '#FF5D5D', avg });
 
   const nw = NETWORTH_SERIES;
@@ -435,8 +435,9 @@ function renderStats() {
 
   const series = state.assetsLineTab==='net'?NETWORTH_SERIES:state.assetsLineTab==='total'?TOTAL_ASSETS_SERIES:DEBT_SERIES;
   const last7 = series.slice(-7);
-  $('#total-assets-meta').textContent = `5月31日 ${money(series[series.length-1])}`;
-  lineChart($('#assets-line-chart'), last7.map((v,i)=>({ v, axis:weekdayOf(statsRangeDays()[i] || '2024-05-26') })), { color:'#2FBF71', yFmt:v=>(v/10000).toFixed(2)+'w', dashedTail:true });
+  const axisDays = days.slice(-7);
+  $('#total-assets-meta').textContent = `${+to.slice(5,7)}月${+to.slice(8,10)}日 ${money(series[series.length-1])}`;
+  lineChart($('#assets-line-chart'), last7.map((v,i)=>({ v, axis:weekdayOf(axisDays[i]) })), { color:'#2FBF71', yFmt:v=>(v/10000).toFixed(2)+'w', dashedTail:true });
 }
 
 /* ---------- 渲染：资产页 ---------- */
@@ -476,8 +477,9 @@ function renderAssetDetail() {
   const right = $('#assets-right');
   const a = accOf(state.selectedAccountId);
   const txs = state.txs.filter(t => t.account === a.name).sort((x,y)=> y.date.localeCompare(x.date) || y.time.localeCompare(x.time));
-  const out = txs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
-  const inc = txs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+  const monthTxs = txs.filter(t => monthOf(t.date) === state.month);
+  const out = monthTxs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+  const inc = monthTxs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
   const isCredit = !!a.credit;
   const balance = isCredit ? -70.90 : (ASSET_AMOUNTS[a.id] || 0);
   const months = {};
@@ -590,23 +592,32 @@ function renderSettings() {
     <div class="set-item"><div class="s-label">导出数据<div class="s-desc">下载 JSON 备份</div></div><button class="set-btn" id="export-btn">导出</button></div>
     <div class="set-item"><div class="s-label">重置示例数据<div class="s-desc">清除本地修改，恢复演示数据</div></div><button class="set-btn danger" id="reset-btn">重置</button></div>
     <div class="set-group-title">关于</div>
-    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.0 · 网页预览版 · 数据仅保存在本浏览器</div></div></div>`;
-  $('#save-budget').onclick = () => { state.budget = +$('#budget-input').value || 3000; localStorage.setItem(LS_BUDGET, state.budget); toast('预算已保存'); renderLedger(); };
+    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.3 · 网页预览版 · 数据仅保存在本浏览器</div></div></div>`;
+  $('#save-budget').onclick = () => {
+    const v = parseFloat($('#budget-input').value);
+    if (isNaN(v) || v <= 0) { toast('请输入有效的预算金额'); return; }
+    state.budget = v;
+    localStorage.setItem(LS_BUDGET, state.budget);
+    toast('预算已保存');
+    renderLedger();
+  };
   $('#export-btn').onclick = () => {
     const blob = new Blob([JSON.stringify({ txs: state.txs }, null, 2)], { type:'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = 'icost-web-backup.json'; a.click();
   };
-  $('#reset-btn').onclick = () => { localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_SAVED); load(); toast('已重置'); navigate('ledger'); };
+  $('#reset-btn').onclick = () => { [LS_KEY, LS_SAVED, LS_BUDGET, LS_SUBS].forEach(k => localStorage.removeItem(k)); load(); toast('已重置'); navigate('ledger'); };
 }
 
 /* ---------- 搜索 ---------- */
 function renderSearch() {
   const q = state.searchQuery.trim().toLowerCase();
+  const qn = parseFloat(q);
   const all = state.txs;
   const txs = all.filter(t => {
     if (!q) return true;
-    return (t.cat + (t.sub||'') + t.account + (t.note||'')).toLowerCase().includes(q);
+    if ((t.cat + (t.sub||'') + t.account + (t.note||'')).toLowerCase().includes(q)) return true;
+    return !isNaN(qn) && String(t.amount).includes(q);
   });
   const exp = txs.filter(t=>t.type==='expense').reduce((s,t)=>s+txNet(t),0);
   const inc = txs.filter(t=>t.type==='income').reduce((s,t)=>s+txNet(t),0);
@@ -617,16 +628,22 @@ function renderSearch() {
     chip('手续费', money(0)) + chip('优惠', money(offers)) + chip('退款', money(0));
 
   let list = [...txs];
-  if (state.sortDesc) list.sort((a,b)=>b.amount-a.amount); else list.sort((a,b)=>b.date.localeCompare(a.date)||b.time.localeCompare(a.time));
-  const groups = {};
-  list.forEach(t => (groups[t.date] = groups[t.date] || []).push(t));
-  $('#search-results').innerHTML = Object.keys(groups).sort().reverse().map(day => {
-    const g = groups[day];
-    const e = g.filter(t=>t.type==='expense').reduce((s,t)=>s+txNet(t),0);
-    const i = g.filter(t=>t.type==='income').reduce((s,t)=>s+txNet(t),0);
-    return `<div class="sr-day"><b>${day.slice(5).replace('-','/')}</b> ${weekdayOf(day)}　支出: ${money(e)} 收入: ${money(i)} <span class="chev">⌄</span></div>
-      ${g.map(txnItemHTML).join('')}`;
-  }).join('') || '<div style="padding:40px;text-align:center;color:#6b6d78;font-size:12px">无匹配账单</div>';
+  if (state.sortDesc) {
+    list.sort((a,b)=>txNet(b)-txNet(a));
+    $('#search-results').innerHTML = list.map(t => txnItemHTML({ ...t, time: `${t.date.slice(5).replace('-','/')} ${t.time}` })).join('')
+      || '<div style="padding:40px;text-align:center;color:#6b6d78;font-size:12px">无匹配账单</div>';
+  } else {
+    list.sort((a,b)=>b.date.localeCompare(a.date)||b.time.localeCompare(a.time));
+    const groups = {};
+    list.forEach(t => (groups[t.date] = groups[t.date] || []).push(t));
+    $('#search-results').innerHTML = Object.keys(groups).sort().reverse().map(day => {
+      const g = groups[day];
+      const e = g.filter(t=>t.type==='expense').reduce((s,t)=>s+txNet(t),0);
+      const i = g.filter(t=>t.type==='income').reduce((s,t)=>s+txNet(t),0);
+      return `<div class="sr-day"><b>${day.slice(5).replace('-','/')}</b> ${weekdayOf(day)}　支出: ${money(e)} 收入: ${money(i)} <span class="chev">⌄</span></div>
+        ${g.map(txnItemHTML).join('')}`;
+    }).join('') || '<div style="padding:40px;text-align:center;color:#6b6d78;font-size:12px">无匹配账单</div>';
+  }
   $$('#search-results .txn-item').forEach(el => {
     el.style.borderBottom = '1px solid #23242c';
   });
@@ -719,6 +736,7 @@ function openAdd() {
   add.creatingSub = false;
   if (!subsOf(add.cat).includes(add.sub)) add.sub = subsOf(add.cat)[0] || '';
   add.dt = defaultDT();
+  $('#acc-menu').classList.add('hidden');
   renderAdd();
   $('#add-overlay').classList.remove('hidden');
 }
@@ -841,6 +859,7 @@ function bind() {
   $('#asset-quick-add').onclick = $('#savings-add').onclick = $('#asset-add').onclick = openAdd;
   $('#open-search').onclick = () => { $('#search-overlay').classList.remove('hidden'); state.searchQuery=''; $('#search-input').value=''; renderSearch(); $('#search-input').focus(); };
   $('#search-cancel').onclick = () => $('#search-overlay').classList.add('hidden');
+  $('#search-overlay').onclick = e => { if (e.target === e.currentTarget) $('#search-overlay').classList.add('hidden'); };
   $('#search-clear').onclick = () => { state.searchQuery=''; $('#search-input').value=''; renderSearch(); };
   $('#search-input').oninput = e => { state.searchQuery = e.target.value; renderSearch(); };
   $('#sort-chip').onclick = () => { state.sortDesc = !state.sortDesc; $('#sort-chip').classList.toggle('on', state.sortDesc); renderSearch(); };
@@ -879,10 +898,11 @@ function bind() {
   $('#time-confirm').onclick = confirmTime;
   $('#time-cancel').onclick = () => $('#time-overlay').classList.add('hidden');
   $('#pick-account').onclick = () => {
-    const names = ACCOUNTS.map(a=>a.name);
-    const i = names.indexOf(add.account);
-    add.account = names[(i+1) % names.length];
-    renderAdd();
+    const menu = $('#acc-menu');
+    if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
+    menu.innerHTML = ACCOUNTS.map(a => `<button class="acc-opt ${add.account===a.name?'on':''}" data-acc="${esc(a.name)}">${a.icon} ${esc(a.name)}</button>`).join('');
+    menu.classList.remove('hidden');
+    $$('#acc-menu .acc-opt').forEach(o => o.onclick = () => { add.account = o.dataset.acc; menu.classList.add('hidden'); renderAdd(); });
   };
   $('#pick-book').onclick = () => toast('默认账本：联认账本_二');
 
