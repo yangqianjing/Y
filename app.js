@@ -594,7 +594,7 @@ function renderSettings() {
     <div class="set-item"><div class="s-label">导出数据<div class="s-desc">下载 JSON 备份</div></div><button class="set-btn" id="export-btn">导出</button></div>
     <div class="set-item"><div class="s-label">重置示例数据<div class="s-desc">清除本地修改，恢复演示数据</div></div><button class="set-btn danger" id="reset-btn">重置</button></div>
     <div class="set-group-title">关于</div>
-    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.4 · 网页预览版 · 数据仅保存在本浏览器</div></div></div>`;
+    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.5 · 网页预览版 · 数据仅保存在本浏览器</div></div></div>`;
   $('#save-budget').onclick = () => {
     const v = parseFloat($('#budget-input').value);
     if (isNaN(v) || v <= 0) { toast('请输入有效的预算金额'); return; }

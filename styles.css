@@ -234,7 +234,7 @@ input{font-family:inherit;}
 .progress .track{flex:1;height:7px;border-radius:4px;background:var(--card2);overflow:hidden;}
 .progress .fill{height:100%;border-radius:4px;background:var(--green);}
 .progress .pct{flex:none;}
-.plan-chev{margin-left:auto;opacity:.4;font-size:11px;}
+.plan-chev{width:fit-content;margin-left:auto;opacity:.4;font-size:11px;}
 .detail-head{display:flex;align-items:flex-start;gap:10px;}
 .dh-info{flex:1;}
 .dh-name-row{display:flex;align-items:center;gap:8px;}
