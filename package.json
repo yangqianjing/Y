@@ -1,6 +1,6 @@
 {
   "name": "icost-app",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "iCost 记账 · Electron 桌面版",
   "main": "main.js",
   "author": "yangqianjing",

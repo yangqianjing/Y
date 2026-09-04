@@ -245,6 +245,7 @@
       <div class="add-tabs">
         <button class="add-tab active" data-type="expense">支出</button>
         <button class="add-tab" data-type="income">收入</button>
+        <button class="add-tab" data-type="transfer">转账</button>
       </div>
       <button class="add-close" id="add-close">✕</button>
     </div>
@@ -273,13 +274,64 @@
 <div class="overlay hidden" id="time-overlay">
   <div class="time-panel">
     <div class="time-head">
-      <button class="plain-btn" id="time-cancel">取消</button>
-      <b>选择时间</b>
-      <button class="plain-btn blue" id="time-confirm">确定</button>
+      <div class="time-title-group">
+        <b>选择时间</b>
+        <span>选择日期与精确时间</span>
+      </div>
     </div>
-    <div class="wheel-wrap">
-      <div class="wheel-band"></div>
-      <div class="wheel-cols" id="wheel-cols"></div>
+    <div class="time-card calendar-card">
+      <div class="time-calendar-head">
+        <b id="time-month-title">2024年5月</b>
+        <div class="time-calendar-nav">
+          <button class="time-nav-btn ghost" id="time-prev-month">‹</button>
+          <button class="time-nav-btn primary" id="time-next-month">›</button>
+        </div>
+      </div>
+      <div class="time-cal-week">
+        <span>周日</span><span>周一</span><span>周二</span><span>周三</span><span>周四</span><span>周五</span><span>周六</span>
+      </div>
+      <div class="time-cal-grid" id="time-cal-grid"></div>
+    </div>
+    <div class="time-card picker-card">
+      <div class="time-current">
+        <span>时间</span>
+        <b id="time-value">15:16:00</b>
+      </div>
+      <div class="wheel-wrap compact">
+        <div class="wheel-band"></div>
+        <div class="wheel-cols" id="wheel-cols"></div>
+      </div>
+    </div>
+    <div class="time-actions">
+      <button class="time-btn ghost" id="time-cancel">取消</button>
+      <button class="time-btn primary" id="time-confirm">确定</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="export-overlay">
+  <div class="export-panel">
+    <div class="export-head">
+      <div>
+        <b>导出 Excel</b>
+        <span>仅导出所选时间范围内的账单</span>
+      </div>
+      <button class="export-close" id="export-close">✕</button>
+    </div>
+    <div class="export-quick" id="export-quick">
+      <button class="export-chip" data-range="month">本月</button>
+      <button class="export-chip" data-range="last">上月</button>
+      <button class="export-chip" data-range="year">今年</button>
+      <button class="export-chip" data-range="all">全部</button>
+    </div>
+    <div class="export-dates">
+      <label>开始日期<input type="date" id="export-from"></label>
+      <label>结束日期<input type="date" id="export-to"></label>
+    </div>
+    <div class="export-preview" id="export-preview"></div>
+    <div class="export-actions">
+      <button class="time-btn ghost" id="export-cancel">取消</button>
+      <button class="time-btn primary" id="export-excel">导出 .xlsx</button>
     </div>
   </div>
 </div>

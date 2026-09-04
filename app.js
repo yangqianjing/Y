@@ -4,7 +4,7 @@ const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const fmt = n => (Math.abs(n)).toLocaleString('zh-CN', { minimumFractionDigits:2, maximumFractionDigits:2 });
 const money = n => '¥' + fmt(n);
-const signedMoney = (n, type) => (type === 'expense' ? '-' : '+') + fmt(n);
+const signedMoney = (n, type) => type === 'expense' ? '-' + fmt(n) : type === 'income' ? '+' + fmt(n) : fmt(n);
 
 /* ---------- 状态 ---------- */
 const LS_KEY = 'icostweb_tx_v1';
@@ -290,6 +290,20 @@ function renderCalendar() {
 }
 
 function txnItemHTML(t) {
+  if (t.type === 'transfer') {
+    return `
+  <div class="txn-item">
+    <div class="txn-ico" style="background:#4D7BFE">💸</div>
+    <div class="txn-mid">
+      <div class="txn-name">转账 · ${esc(t.account)} → ${esc(t.toAccount)}</div>
+      <div class="txn-time">${t.time}</div>
+    </div>
+    <div class="txn-right">
+      <div class="txn-amt transfer">${fmt(t.amount)}</div>
+      <div class="txn-acc">转入 ${esc(t.toAccount)}</div>
+    </div>
+  </div>`;
+  }
   const c = catOf(t.cat);
   const sub = t.sub ? ` · ${t.sub}` : '';
   const tags = [];
@@ -583,6 +597,189 @@ function renderSavings() {
 }
 
 /* ---------- 渲染：设置页 ---------- */
+function xmlEscape(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;' }[c]));
+}
+function xlsxColumn(index) {
+  let result = '';
+  index++;
+  while (index > 0) {
+    const rem = (index - 1) % 26;
+    result = String.fromCharCode(65 + rem) + result;
+    index = Math.floor((index - 1) / 26);
+  }
+  return result;
+}
+const XLSX_CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let value = i;
+    for (let bit = 0; bit < 8; bit++) value = (value & 1) ? (0xEDB88320 ^ (value >>> 1)) : (value >>> 1);
+    table[i] = value >>> 0;
+  }
+  return table;
+})();
+function crc32(bytes) {
+  let value = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) value = XLSX_CRC_TABLE[(value ^ bytes[i]) & 0xFF] ^ (value >>> 8);
+  return (value ^ 0xFFFFFFFF) >>> 0;
+}
+function concatBytes(parts) {
+  const size = parts.reduce((sum, part) => sum + part.length, 0);
+  const result = new Uint8Array(size);
+  let offset = 0;
+  parts.forEach(part => { result.set(part, offset); offset += part.length; });
+  return result;
+}
+function zipStore(files) {
+  const encoder = new TextEncoder();
+  const now = new Date();
+  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | Math.floor(now.getSeconds() / 2);
+  const dosDate = ((Math.max(now.getFullYear(), 1980) - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  files.forEach(file => {
+    const name = encoder.encode(file.name);
+    const data = file.data;
+    const checksum = crc32(data);
+    const local = new Uint8Array(30 + name.length);
+    const localView = new DataView(local.buffer);
+    localView.setUint32(0, 0x04034b50, true);
+    localView.setUint16(4, 20, true);
+    localView.setUint16(6, 0, true);
+    localView.setUint16(8, 0, true);
+    localView.setUint16(10, dosTime, true);
+    localView.setUint16(12, dosDate, true);
+    localView.setUint32(14, checksum, true);
+    localView.setUint32(18, data.length, true);
+    localView.setUint32(22, data.length, true);
+    localView.setUint16(26, name.length, true);
+    localView.setUint16(28, 0, true);
+    local.set(name, 30);
+    localParts.push(local, data);
+
+    const central = new Uint8Array(46 + name.length);
+    const centralView = new DataView(central.buffer);
+    centralView.setUint32(0, 0x02014b50, true);
+    centralView.setUint16(4, 20, true);
+    centralView.setUint16(6, 20, true);
+    centralView.setUint16(8, 0, true);
+    centralView.setUint16(10, 0, true);
+    centralView.setUint16(12, dosTime, true);
+    centralView.setUint16(14, dosDate, true);
+    centralView.setUint32(16, checksum, true);
+    centralView.setUint32(20, data.length, true);
+    centralView.setUint32(24, data.length, true);
+    centralView.setUint16(28, name.length, true);
+    centralView.setUint32(42, offset, true);
+    central.set(name, 46);
+    centralParts.push(central);
+    offset += local.length + data.length;
+  });
+  const centralDirectory = concatBytes(centralParts);
+  const end = new Uint8Array(22);
+  const endView = new DataView(end.buffer);
+  endView.setUint32(0, 0x06054b50, true);
+  endView.setUint16(8, files.length, true);
+  endView.setUint16(10, files.length, true);
+  endView.setUint32(12, centralDirectory.length, true);
+  endView.setUint32(16, offset, true);
+  return concatBytes([...localParts, centralDirectory, end]);
+}
+function sheetXml(rows) {
+  const body = rows.map((row, rowIndex) => {
+    const cells = row.map((value, colIndex) => {
+      const ref = `${xlsxColumn(colIndex)}${rowIndex + 1}`;
+      if (typeof value === 'number' && Number.isFinite(value)) return `<c r="${ref}"><v>${value}</v></c>`;
+      return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(value)}</t></is></c>`;
+    }).join('');
+    return `<row r="${rowIndex + 1}">${cells}</row>`;
+  }).join('');
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${body}</sheetData></worksheet>`;
+}
+function buildXlsx(sheets) {
+  const files = [
+    { name:'[Content_Types].xml', data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>' },
+    { name:'_rels/.rels', data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
+    { name:'xl/workbook.xml', data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${xmlEscape(sheets[0].name)}" sheetId="1" r:id="rId1"/></sheets></workbook>` },
+    { name:'xl/_rels/workbook.xml.rels', data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>' },
+    { name:'xl/worksheets/sheet1.xml', data:sheetXml(sheets[0].rows) }
+  ].map(file => ({ ...file, data:new TextEncoder().encode(file.data) }));
+  return zipStore(files);
+}
+function exportRangeDates(range) {
+  const [year, month] = state.month.split('-').map(Number);
+  if (range === 'last') {
+    const [py, pm] = addMonth(state.month, -1).split('-').map(Number);
+    return [`${py}-${pad2(pm)}-01`, `${py}-${pad2(pm)}-${pad2(daysInMonth(`${py}-${pad2(pm)}`))}`];
+  }
+  if (range === 'year') return [`${year}-01-01`, `${year}-12-31`];
+  if (range === 'all') {
+    const dates = state.txs.map(t => t.date).sort();
+    return dates.length ? [dates[0], dates[dates.length - 1]] : [`${year}-${pad2(month)}-01`, `${year}-${pad2(month)}-${pad2(daysInMonth(state.month))}`];
+  }
+  return [`${year}-${pad2(month)}-01`, `${year}-${pad2(month)}-${pad2(daysInMonth(state.month))}`];
+}
+function exportBillRows(from, to) {
+  return state.txs.filter(t => t.date >= from && t.date <= to)
+    .sort((a,b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
+    .map(t => {
+      const net = txNet(t);
+      const actual = t.type === 'expense' ? -net : t.type === 'income' ? net : '';
+      return [t.date, t.time, t.type === 'expense' ? '支出' : t.type === 'income' ? '收入' : '转账', t.cat || '', t.sub || '', t.account || '', t.toAccount || '', t.amount, t.offer || 0, actual, t.note || ''];
+    });
+}
+function updateExportPreview() {
+  const from = $('#export-from').value;
+  const to = $('#export-to').value;
+  if (!from || !to || from > to) {
+    $('#export-preview').innerHTML = '<div class="preview-line">请选择有效的开始和结束日期</div>';
+    return;
+  }
+  const rows = exportBillRows(from, to);
+  const expense = rows.reduce((sum,row) => sum + (row[2] === '支出' ? row[7] - row[8] : 0), 0);
+  const income = rows.reduce((sum,row) => sum + (row[2] === '收入' ? row[7] : 0), 0);
+  const transfer = rows.filter(row => row[2] === '转账').length;
+  $('#export-preview').innerHTML = `
+    <div class="preview-line"><b>${rows.length}</b> 笔账单</div>
+    <div class="preview-line">支出 <b>${money(expense)}</b></div>
+    <div class="preview-line">收入 <b>${money(income)}</b></div>
+    ${transfer ? `<div class="preview-line">转账 <b>${transfer}</b> 笔</div>` : ''}`;
+}
+function setExportRange(range) {
+  const [from, to] = exportRangeDates(range);
+  $('#export-from').value = from;
+  $('#export-to').value = to;
+  $$('#export-quick .export-chip').forEach(chip => chip.classList.toggle('on', chip.dataset.range === range));
+  updateExportPreview();
+}
+function openExportExcel() {
+  setExportRange('month');
+  $('#export-overlay').classList.remove('hidden');
+}
+function closeExportExcel() {
+  $('#export-overlay').classList.add('hidden');
+}
+function downloadExportExcel() {
+  const from = $('#export-from').value;
+  const to = $('#export-to').value;
+  if (!from || !to || from > to) { toast('请选择有效的时间范围'); return; }
+  const rows = exportBillRows(from, to);
+  if (!rows.length) { toast('所选时间没有账单'); return; }
+  const data = buildXlsx([{ name:'账单明细', rows:[
+    ['日期','时间','类型','分类','子分类','账户','转入账户','金额','优惠','实际金额','备注'],
+    ...rows
+  ] }]);
+  const blob = new Blob([data.buffer], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `iCost-账单_${from}_${to}.xlsx`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  closeExportExcel();
+  toast('Excel 已导出 ✓');
+}
 function renderSettings() {
   $('#settings-wrap').innerHTML = `
     <div class="set-group-title">通用</div>
@@ -592,9 +789,10 @@ function renderSettings() {
     <div class="set-item"><div class="s-label">月预算<div class="s-desc">用于账本页“剩余预算”卡片</div></div><input type="number" id="budget-input" value="${state.budget}" style="width:100px"><button class="set-btn" id="save-budget">保存</button></div>
     <div class="set-group-title">数据</div>
     <div class="set-item"><div class="s-label">导出数据<div class="s-desc">下载 JSON 备份</div></div><button class="set-btn" id="export-btn">导出</button></div>
+    <div class="set-item"><div class="s-label">导出 Excel<div class="s-desc">选择账单时间，导出标准 .xlsx</div></div><button class="set-btn" id="export-excel-open">选择时间</button></div>
     <div class="set-item"><div class="s-label">重置示例数据<div class="s-desc">清除本地修改，恢复演示数据</div></div><button class="set-btn danger" id="reset-btn">重置</button></div>
     <div class="set-group-title">关于</div>
-    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.5 · 网页预览版 · 数据仅保存在本浏览器</div></div></div>`;
+    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.6 · 网页预览版 · 数据仅保存在本浏览器</div></div></div>`;
   $('#save-budget').onclick = () => {
     const v = parseFloat($('#budget-input').value);
     if (isNaN(v) || v <= 0) { toast('请输入有效的预算金额'); return; }
@@ -608,6 +806,7 @@ function renderSettings() {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = 'icost-web-backup.json'; a.click();
   };
+  $('#export-excel-open').onclick = openExportExcel;
   $('#reset-btn').onclick = () => { [LS_KEY, LS_SAVED, LS_BUDGET, LS_SUBS].forEach(k => localStorage.removeItem(k)); load(); toast('已重置'); navigate('ledger'); };
 }
 
@@ -652,25 +851,38 @@ function renderSearch() {
 }
 
 /* ---------- 记一笔 ---------- */
-const add = { type:'expense', amount:'0', cat:'餐饮', sub:'', account:'支付宝', dt:'', creatingSub:false };
+const add = { type:'expense', amount:'0', cat:'餐饮', sub:'', account:'支付宝', toAccount:'招商银行', dt:'', creatingSub:false };
 function renderAdd() {
   $$('.add-tab').forEach(t => t.classList.toggle('active', t.dataset.type === add.type));
   $('#add-amount').textContent = add.amount;
-  $('#pick-account').textContent = '💳 ' + add.account;
-  $('#pick-cat').textContent = '🍩 ' + add.cat;
-  $('#pick-sub').textContent = '🏷️ ' + (add.sub || '无');
-  const types = Object.keys(CATS).filter(k => add.type === 'expense' ? !CATS[k].income : CATS[k].income);
-  $('#cat-picker').innerHTML = types.map(k => `
-    <div class="cat-opt ${add.cat===k?'sel':''}" data-cat="${k}">
-      <div class="c-ico" style="background:${CATS[k].color}">${CATS[k].icon}</div>${k}
-    </div>`).join('');
-  $$('#cat-picker .cat-opt').forEach(o => o.onclick = () => {
-    add.cat = o.dataset.cat;
-    add.sub = subsOf(add.cat)[0] || '';
-    add.creatingSub = false;
-    renderAdd();
-  });
-  renderSubRow();
+  $('#pick-account').textContent = (add.type === 'transfer' ? '💳 转出 ' : '💳 ') + add.account;
+  if (add.type === 'transfer') {
+    $('#pick-cat').textContent = '🏦 转入 ' + add.toAccount;
+    $('#pick-sub').textContent = '🏦 账户间转账';
+    $('#pick-book').style.display = 'none';
+    $('#pick-sub').style.display = 'none';
+    $('#cat-picker').style.display = 'none';
+    $('#sub-row').style.display = 'none';
+  } else {
+    $('#pick-book').style.display = '';
+    $('#pick-sub').style.display = '';
+    $('#pick-cat').textContent = '🍩 ' + add.cat;
+    $('#pick-sub').textContent = '🏷️ ' + (add.sub || '无');
+    $('#cat-picker').style.display = '';
+    $('#sub-row').style.display = '';
+    const types = Object.keys(CATS).filter(k => add.type === 'expense' ? !CATS[k].income : CATS[k].income);
+    $('#cat-picker').innerHTML = types.map(k => `
+      <div class="cat-opt ${add.cat===k?'sel':''}" data-cat="${k}">
+        <div class="c-ico" style="background:${CATS[k].color}">${CATS[k].icon}</div>${k}
+      </div>`).join('');
+    $$('#cat-picker .cat-opt').forEach(o => o.onclick = () => {
+      add.cat = o.dataset.cat;
+      add.sub = subsOf(add.cat)[0] || '';
+      add.creatingSub = false;
+      renderAdd();
+    });
+    renderSubRow();
+  }
   $('#pick-datetime').textContent = `📅 ${formatChipDT(add.dt)}`;
 }
 function renderSubRow() {
@@ -694,6 +906,23 @@ function renderSubRow() {
   $$('#sub-row .sub-chip').forEach(c => c.onclick = () => { add.sub = c.dataset.sub; renderAdd(); });
   $('#sub-add-btn').onclick = () => { add.creatingSub = true; renderAdd(); };
 }
+function openAccountMenu(kind) {
+  const menu = $('#acc-menu');
+  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
+  const selected = kind === 'to' ? add.toAccount : add.account;
+  menu.innerHTML = ACCOUNTS.map(a => `<button class="acc-opt ${selected===a.name?'on':''}" data-acc="${esc(a.name)}">${a.icon} ${esc(a.name)}</button>`).join('');
+  menu.classList.remove('hidden');
+  $$('#acc-menu .acc-opt').forEach(o => o.onclick = () => {
+    if (kind === 'to') add.toAccount = o.dataset.acc;
+    else {
+      add.account = o.dataset.acc;
+      if (add.toAccount === add.account) add.toAccount = (ACCOUNTS.find(a => a.name !== add.account) || {}).name || add.toAccount;
+    }
+    if (add.toAccount === add.account) add.account = (ACCOUNTS.find(a => a.name !== add.toAccount) || {}).name || add.account;
+    menu.classList.add('hidden');
+    renderAdd();
+  });
+}
 function keypadPress(key) {
   if (key === 'ac') add.amount = '0';
   else if (key === 'del') add.amount = add.amount.length > 1 ? add.amount.slice(0,-1) : '0';
@@ -709,9 +938,13 @@ function keypadPress(key) {
 function saveTx() {
   const amount = parseFloat(add.amount);
   if (!amount || amount <= 0) { toast('请输入金额'); return; }
-  const c = catOf(add.cat);
+  if (add.type === 'transfer' && add.toAccount === add.account) { toast('转入账户不能与转出账户相同'); return; }
+  const transfer = add.type === 'transfer';
+  const c = transfer ? null : catOf(add.cat);
   const { date, time } = parseDT();
-  state.txs.push({ id:'u'+Date.now(), date, time, type:add.type, cat:add.cat, sub: add.sub || (c.subs && c.subs[0]) || '', amount, account:add.account });
+  state.txs.push(transfer
+    ? { id:'u'+Date.now(), date, time, type:add.type, cat:'转账', sub:'', amount, account:add.account, toAccount:add.toAccount }
+    : { id:'u'+Date.now(), date, time, type:add.type, cat:add.cat, sub: add.sub || (c.subs && c.subs[0]) || '', amount, account:add.account });
   saveTxs();
   $('#add-overlay').classList.add('hidden');
   toast('已记一笔 ✓');
@@ -751,7 +984,7 @@ $('#add-overlay').onclick = e => { if (e.target === e.currentTarget) closeAdd();
 /* ---------- 时间选择弹窗（滚轮） ---------- */
 const tp = { y:2024, mo:5, d:30, h:0, mi:0, s:0 };
 const WHEEL = {};
-const ITEM_H = 36;
+const ITEM_H = 40;
 
 function formatChipDT(dt) {
   return (dt || '').replace(/-/g, '/').replace('T', ' ');
@@ -768,27 +1001,35 @@ function openTimePanel() {
   buildTimeWheels();
   $('#time-overlay').classList.remove('hidden');
 }
+function renderTimeCalendar() {
+  $('#time-month-title').textContent = `${tp.y}年${tp.mo}月`;
+  const grid = $('#time-cal-grid');
+  const dim = new Date(tp.y, tp.mo, 0).getDate();
+  const firstWeekday = new Date(tp.y, tp.mo - 1, 1).getDay();
+  grid.innerHTML = '';
+  for (let i = 0; i < firstWeekday; i++) grid.insertAdjacentHTML('beforeend', '<div class="time-cal-day blank"></div>');
+  for (let day = 1; day <= dim; day++) {
+    grid.insertAdjacentHTML('beforeend', `<div class="time-cal-day ${day===tp.d?'sel':''}" data-day="${day}">${day}</div>`);
+  }
+  $$('#time-cal-grid .time-cal-day:not(.blank)').forEach(el => el.onclick = () => {
+    tp.d = +el.dataset.day;
+    renderTimeCalendar();
+  });
+}
+function updateTimeValue() {
+  $('#time-value').textContent = `${pad2(tp.h)}:${pad2(tp.mi)}:${pad2(tp.s)}`;
+}
 function buildTimeWheels() {
   const cols = $('#wheel-cols');
   cols.innerHTML = '';
-  const years = []; for (let y = 2020; y <= 2030; y++) years.push(y);
-  const months = Array.from({ length: 12 }, (_, i) => i + 1);
-  const dim = new Date(tp.y, tp.mo, 0).getDate();
-  const days = Array.from({ length: dim }, (_, i) => i + 1);
   const hours = Array.from({ length: 24 }, (_, i) => i);
   const mins = Array.from({ length: 60 }, (_, i) => i);
   const secs = Array.from({ length: 60 }, (_, i) => i);
-  const onYM = () => {
-    const d2 = new Date(tp.y, tp.mo, 0).getDate();
-    tp.d = Math.min(tp.d, d2);
-    rebuildWheelCol(WHEEL.d, Array.from({ length: d2 }, (_, i) => i + 1), tp.d, v => `${v}日`);
-  };
-  WHEEL.y  = addWheelCol(cols, years,  tp.y,  v => { tp.y = v;  onYM(); }, v => `${v}年`);
-  WHEEL.mo = addWheelCol(cols, months, tp.mo, v => { tp.mo = v; onYM(); }, v => `${v}月`);
-  WHEEL.d  = addWheelCol(cols, days,   tp.d,  v => { tp.d = v; },  v => `${v}日`);
-  WHEEL.h  = addWheelCol(cols, hours,  tp.h,  v => { tp.h = v; },  v => pad2(v));
-  WHEEL.mi = addWheelCol(cols, mins,   tp.mi, v => { tp.mi = v; }, v => pad2(v));
-  WHEEL.s  = addWheelCol(cols, secs,   tp.s,  v => { tp.s = v; },  v => pad2(v));
+  renderTimeCalendar();
+  WHEEL.h  = addWheelCol(cols, hours,  tp.h,  v => { tp.h = v; updateTimeValue(); }, pad2);
+  WHEEL.mi = addWheelCol(cols, mins,   tp.mi, v => { tp.mi = v; updateTimeValue(); }, pad2);
+  WHEEL.s  = addWheelCol(cols, secs,   tp.s,  v => { tp.s = v; updateTimeValue(); }, pad2);
+  updateTimeValue();
 }
 function addWheelCol(parent, values, sel, onChange, fmt) {
   const el = document.createElement('div');
@@ -841,6 +1082,13 @@ function confirmTime() {
   $('#time-overlay').classList.add('hidden');
   $('#pick-datetime').textContent = `📅 ${formatChipDT(add.dt)}`;
   toast('时间已更新');
+}
+function shiftTimeMonth(delta) {
+  const next = new Date(tp.y, tp.mo - 1 + delta, 1);
+  tp.y = next.getFullYear();
+  tp.mo = next.getMonth() + 1;
+  tp.d = Math.min(tp.d, new Date(tp.y, tp.mo, 0).getDate());
+  renderTimeCalendar();
 }
 
 /* ---------- 导航 ---------- */
@@ -902,23 +1150,36 @@ function bind() {
 
   $$('.mode-pill').forEach(p => p.onclick = () => { state.savingsMode = p.dataset.mode; const plans = PLANS.filter(x=>x.mode===p.dataset.mode); if (plans.length) state.selectedPlanId = plans[0].id; renderSavings(); });
 
-  $$('.add-tab').forEach(t => t.onclick = () => { add.type = t.dataset.type; add.cat = add.type==='expense' ? '餐饮' : '副业'; add.sub = subsOf(add.cat)[0] || ''; add.creatingSub = false; add.amount='0'; renderAdd(); });
+  $$('.add-tab').forEach(t => t.onclick = () => {
+    add.type = t.dataset.type;
+    if (add.type !== 'transfer') {
+      add.cat = add.type === 'expense' ? '餐饮' : '副业';
+      add.sub = subsOf(add.cat)[0] || '';
+    }
+    add.creatingSub = false;
+    add.amount = '0';
+    renderAdd();
+  });
   $$('.keypad button').forEach(b => b.onclick = () => keypadPress(b.dataset.key));
   $('#pick-sub').onclick = () => { add.creatingSub = true; renderSubRow(); };
   $('#pick-datetime').onclick = openTimePanel;
   $('#time-confirm').onclick = confirmTime;
   $('#time-cancel').onclick = () => $('#time-overlay').classList.add('hidden');
-  $('#pick-account').onclick = () => {
-    const menu = $('#acc-menu');
-    if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
-    menu.innerHTML = ACCOUNTS.map(a => `<button class="acc-opt ${add.account===a.name?'on':''}" data-acc="${esc(a.name)}">${a.icon} ${esc(a.name)}</button>`).join('');
-    menu.classList.remove('hidden');
-    $$('#acc-menu .acc-opt').forEach(o => o.onclick = () => { add.account = o.dataset.acc; menu.classList.add('hidden'); renderAdd(); });
-  };
+  $('#export-excel').onclick = downloadExportExcel;
+  $('#export-cancel').onclick = closeExportExcel;
+  $('#export-close').onclick = closeExportExcel;
+  $('#export-overlay').onclick = e => { if (e.target === e.currentTarget) closeExportExcel(); };
+  $$('#export-quick .export-chip').forEach(chip => chip.onclick = () => setExportRange(chip.dataset.range));
+  $('#export-from').oninput = () => { $$('#export-quick .export-chip').forEach(chip => chip.classList.remove('on')); updateExportPreview(); };
+  $('#export-to').oninput = () => { $$('#export-quick .export-chip').forEach(chip => chip.classList.remove('on')); updateExportPreview(); };
+  $('#pick-account').onclick = () => openAccountMenu('from');
+  $('#pick-cat').onclick = () => { if (add.type === 'transfer') openAccountMenu('to'); };
+  $('#time-prev-month').onclick = () => shiftTimeMonth(-1);
+  $('#time-next-month').onclick = () => shiftTimeMonth(1);
   $('#pick-book').onclick = () => toast('默认账本：联认账本_二');
 
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { $('#search-overlay').classList.add('hidden'); $('#add-overlay').classList.add('hidden'); $('#time-overlay').classList.add('hidden'); }
+    if (e.key === 'Escape') { $('#search-overlay').classList.add('hidden'); $('#add-overlay').classList.add('hidden'); $('#time-overlay').classList.add('hidden'); $('#export-overlay').classList.add('hidden'); }
   });
 }
 
