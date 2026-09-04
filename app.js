@@ -11,6 +11,7 @@ const LS_KEY = 'icostweb_tx_v1';
 const LS_BUDGET = 'icostweb_budget';
 const LS_SAVED = 'icostweb_saved';
 const LS_SUBS = 'icostweb_subs_v1';
+const LS_SUB_ICONS = 'icostweb_sub_icons_v1';
 const REIMB = { pending:108.00, done:0, in:0 };
 const FLOW = [ ['还款',0],['收款',0],['转账',1000],['充值',50],['借入',0],['借出',1000] ];
 const HOLIDAYS = { '2024-05-01':'劳动节', '2024-06-01':'儿童节' };
@@ -20,6 +21,7 @@ const state = {
   month: '2024-05',
   selectedDay: '2024-05-30',
   ledgerTab: 'expense',
+  drillCategory: '',
   networthTab: 'net',
   statsMode: 'week',
   statsRange: ['2024-05-26', '2024-06-01'],
@@ -33,6 +35,7 @@ const state = {
   savedCards: new Set(),
   budget: BUDGET,
   userSubs: {},
+  subIcons: {},
   searchOpen: false,
   searchQuery: '',
   sortDesc: false,
@@ -51,6 +54,10 @@ function load() {
     const u = localStorage.getItem(LS_SUBS);
     state.userSubs = u ? JSON.parse(u) : {};
   } catch { state.userSubs = {}; }
+  try {
+    const s = localStorage.getItem(LS_SUB_ICONS);
+    state.subIcons = s ? JSON.parse(s) : {};
+  } catch { state.subIcons = {}; }
 }
 function saveTxs() { localStorage.setItem(LS_KEY, JSON.stringify(state.txs)); }
 
@@ -73,19 +80,64 @@ function subsOf(cat) {
   const user = state.userSubs[cat] || [];
   return [...new Set([...built, ...user])];
 }
-function addUserSub(cat, name) {
+function subIconKey(cat, sub) { return `${cat}||${sub}`; }
+function subIconOf(cat, sub) {
+  if (!cat || !sub) return null;
+  return state.subIcons[subIconKey(cat, sub)] || null;
+}
+function iconMarkup(cat, sub, fallbackIcon) {
+  const custom = subIconOf(cat, sub);
+  if (custom && custom.image) return `<img class="icon-img" src="${custom.image}" alt="${esc(sub || cat || '')}">`;
+  return esc(custom && custom.icon ? custom.icon : fallbackIcon);
+}
+function addUserSub(cat, name, icon = '', image = '') {
   const n = (name || '').trim();
   if (!n) { toast('请输入子分类名称'); return; }
   if (subsOf(cat).some(s => s === n)) {
+    if (icon || image) {
+      state.subIcons[subIconKey(cat, n)] = { icon, image };
+      localStorage.setItem(LS_SUB_ICONS, JSON.stringify(state.subIcons));
+    }
+    add.newSubIcon = ''; add.newSubImage = '';
     toast('该子分类已存在');
     add.sub = n; add.creatingSub = false; renderAdd();
     return;
   }
+  if (icon || image) {
+    state.subIcons[subIconKey(cat, n)] = { icon, image };
+    localStorage.setItem(LS_SUB_ICONS, JSON.stringify(state.subIcons));
+  }
   (state.userSubs[cat] = state.userSubs[cat] || []).push(n);
   localStorage.setItem(LS_SUBS, JSON.stringify(state.userSubs));
   add.sub = n; add.creatingSub = false;
+  add.newSubIcon = ''; add.newSubImage = '';
   renderAdd();
   toast(`已创建子分类「${n}」`);
+}
+function readSubIconImage(file, callback) {
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { toast('请选择图片文件'); return; }
+  if (file.size > 5 * 1024 * 1024) { toast('图片不能超过 5MB'); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const image = new Image();
+    image.onload = () => {
+      const max = 128;
+      const scale = Math.min(1, max / Math.max(image.width, image.height));
+      const width = Math.max(1, Math.round(image.width * scale));
+      const height = Math.max(1, Math.round(image.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (file.type === 'image/jpeg') { context.fillStyle = '#fff'; context.fillRect(0, 0, width, height); }
+      context.drawImage(image, 0, 0, width, height);
+      callback(canvas.toDataURL(file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png', 0.86));
+    };
+    image.onerror = () => toast('图片读取失败');
+    image.src = reader.result;
+  };
+  reader.onerror = () => toast('图片读取失败');
+  reader.readAsDataURL(file);
 }
 function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
@@ -240,6 +292,16 @@ function catAgg(txs, type) {
   });
   return Object.values(map).sort((a,b)=>b.amount-a.amount);
 }
+function subAgg(txs, type, category) {
+  const map = {};
+  txs.filter(t => t.type === type && t.cat === category).forEach(t => {
+    const name = t.sub || category;
+    map[name] = map[name] || { name, amount:0, count:0 };
+    map[name].amount += txNet(t);
+    map[name].count++;
+  });
+  return Object.values(map).sort((a,b) => b.amount-a.amount);
+}
 
 /* ---------- 渲染：账本页 ---------- */
 function renderSummary() {
@@ -310,7 +372,7 @@ function txnItemHTML(t) {
   if (t.offer) tags.push(`<span class="txn-tag">${t.type==='expense'?'优惠':'退款'} ${fmt(t.offer)}</span>`);
   return `
   <div class="txn-item">
-    <div class="txn-ico" style="background:${c.color}">${c.icon}</div>
+    <div class="txn-ico" style="background:${c.color}">${iconMarkup(t.cat, t.sub, c.icon)}</div>
     <div class="txn-mid">
       <div class="txn-name">${esc(t.cat)}${esc(sub)}</div>
       <div class="txn-time">${t.time}</div>
@@ -365,22 +427,37 @@ function renderLedgerCharts() {
 function renderDonut() {
   const txs = txsInMonth(state.month);
   const type = state.ledgerTab === 'income' ? 'income' : 'expense';
-  const segs = catAgg(txs, type).map(c => ({ name:c.name, amount:c.amount, count:c.count, color:catOf(c.name).color }));
+  const typeLabel = type === 'expense' ? '支出' : '收入';
+  const drill = state.drillCategory;
+  const activeTxs = drill ? txs.filter(t => t.type === type && t.cat === drill) : txs;
+  const rows = drill ? subAgg(txs, type, drill) : catAgg(txs, type);
+  const drillColors = ['#FF6D4D','#4D9FFF','#2FBF71','#FFA53C','#9B7BFF','#FF7BAC','#00C2C7','#FFB84D','#4DC3FF'];
+  const segs = rows.map((c,i) => ({ name:c.name, amount:c.amount, count:c.count, color:drill ? drillColors[i % drillColors.length] : catOf(c.name).color }));
   const total = segs.reduce((s,x)=>s+x.amount,0);
-  donutChart($('#cat-donut'), segs, (type==='expense'?'支出':'收入') + '总计', money(total));
+  donutChart($('#cat-donut'), segs, drill ? `${drill}总计` : `${typeLabel}总计`, money(total));
   const listEl = $('#cat-list');
-  listEl.innerHTML = segs.length ? segs.map(c => {
-    const meta = catOf(c.name);
+  $('#cat-level-pill').textContent = drill ? `‹ ${drill} · 子分类` : '一级分类 ⌄';
+  $('#cat-level-pill').onclick = () => { if (drill) { state.drillCategory = ''; renderDonut(); } };
+  listEl.innerHTML = (drill ? '<button class="cat-back" id="cat-drill-back">‹ 返回全部分类</button>' : '') + (segs.length ? segs.map(c => {
+    const parentName = drill || c.name;
+    const subName = drill ? c.name : '';
+    const meta = catOf(parentName);
     const pct = (c.amount / total * 100);
-    return `<div class="cat-item">
-      <div class="cat-ico" style="background:${meta.color}">${meta.icon}</div>
+    return `<div class="cat-item ${drill ? '' : 'drillable'}" ${drill ? '' : `data-cat="${esc(c.name)}"`}>
+      <div class="cat-ico" style="background:${meta.color}">${iconMarkup(parentName, subName, meta.icon)}</div>
       <div class="cat-info">
-        <div class="cat-name">${esc(c.name)} <span class="pct">${pct.toFixed(2)}%</span></div>
+        <div class="cat-name">${esc(c.name)} <span class="pct">${pct.toFixed(2)}%</span>${drill ? '' : '<span class="drill-arrow">›</span>'}</div>
         <div class="cat-bar"><i style="width:${pct}%;background:${meta.color}"></i></div>
       </div>
       <div class="cat-right"><div class="cat-amt">${money(c.amount)}</div><div class="cat-cnt">${c.count} 笔</div></div>
     </div>`;
-  }).join('') : '<div style="padding:20px;text-align:center;color:var(--text2);font-size:12px">暂无数据</div>';
+  }).join('') : '<div style="padding:20px;text-align:center;color:var(--text2);font-size:12px">暂无数据</div>');
+  const back = $('#cat-drill-back');
+  if (back) back.onclick = () => { state.drillCategory = ''; renderDonut(); };
+  $$('#cat-list .cat-item.drillable').forEach(el => el.onclick = () => {
+    state.drillCategory = el.dataset.cat;
+    renderDonut();
+  });
 }
 
 function renderLedger() { renderSummary(); renderCalendar(); renderTxnList(); renderLedgerCharts(); renderDonut(); }
@@ -807,7 +884,7 @@ function renderSettings() {
     a.href = URL.createObjectURL(blob); a.download = 'icost-web-backup.json'; a.click();
   };
   $('#export-excel-open').onclick = openExportExcel;
-  $('#reset-btn').onclick = () => { [LS_KEY, LS_SAVED, LS_BUDGET, LS_SUBS].forEach(k => localStorage.removeItem(k)); load(); toast('已重置'); navigate('ledger'); };
+  $('#reset-btn').onclick = () => { [LS_KEY, LS_SAVED, LS_BUDGET, LS_SUBS, LS_SUB_ICONS].forEach(k => localStorage.removeItem(k)); load(); toast('已重置'); navigate('ledger'); };
 }
 
 /* ---------- 搜索 ---------- */
@@ -851,7 +928,7 @@ function renderSearch() {
 }
 
 /* ---------- 记一笔 ---------- */
-const add = { type:'expense', amount:'0', cat:'餐饮', sub:'', account:'支付宝', toAccount:'招商银行', dt:'', creatingSub:false };
+const add = { type:'expense', amount:'0', cat:'餐饮', sub:'', account:'支付宝', toAccount:'招商银行', dt:'', creatingSub:false, newSubIcon:'', newSubImage:'' };
 function renderAdd() {
   $$('.add-tab').forEach(t => t.classList.toggle('active', t.dataset.type === add.type));
   $('#add-amount').textContent = add.amount;
@@ -879,6 +956,8 @@ function renderAdd() {
       add.cat = o.dataset.cat;
       add.sub = subsOf(add.cat)[0] || '';
       add.creatingSub = false;
+      add.newSubIcon = '';
+      add.newSubImage = '';
       renderAdd();
     });
     renderSubRow();
@@ -889,19 +968,50 @@ function renderSubRow() {
   const row = $('#sub-row');
   if (add.creatingSub) {
     row.innerHTML = `
-      <input class="new-sub-input" id="new-sub-input" placeholder="子分类名称" maxlength="12">
-      <button class="new-sub-ok" id="new-sub-ok">确定</button>
-      <button class="sub-add" id="new-sub-cancel">取消</button>`;
+      <div class="new-sub-editor">
+        <div class="sub-icon-preview" id="new-sub-icon"></div>
+        <input class="new-sub-input" id="new-sub-input" placeholder="子分类名称" maxlength="12">
+      </div>
+      <div class="new-sub-tools">
+        <input class="new-sub-emoji" id="new-sub-emoji" placeholder="图标" maxlength="4" value="${esc(add.newSubIcon)}">
+        <label class="new-sub-upload">上传图片<input type="file" id="new-sub-image" accept="image/*" hidden></label>
+        <button class="new-sub-ok" id="new-sub-ok">确定</button>
+        <button class="sub-add" id="new-sub-cancel">取消</button>
+      </div>`;
     const input = $('#new-sub-input');
-    const confirm = () => addUserSub(add.cat, input.value);
+    const emojiInput = $('#new-sub-emoji');
+    const preview = () => {
+      const meta = catOf(add.cat);
+      $('#new-sub-icon').innerHTML = add.newSubImage
+        ? `<img src="${add.newSubImage}" alt="自定义图标">`
+        : esc(add.newSubIcon || meta.icon);
+    };
+    const confirm = () => addUserSub(add.cat, input.value, emojiInput.value.trim(), add.newSubImage);
+    emojiInput.oninput = () => { add.newSubIcon = emojiInput.value.trim(); add.newSubImage = ''; preview(); };
+    $('#new-sub-image').onchange = e => {
+      const file = e.target.files[0];
+      readSubIconImage(file, dataUrl => {
+        add.newSubImage = dataUrl;
+        preview();
+        toast('图标已就绪');
+      });
+      e.target.value = '';
+    };
+    preview();
     $('#new-sub-ok').onclick = confirm;
     input.onkeydown = e => { if (e.key === 'Enter') confirm(); };
-    $('#new-sub-cancel').onclick = () => { add.creatingSub = false; renderAdd(); };
+    $('#new-sub-cancel').onclick = () => { add.creatingSub = false; add.newSubIcon = ''; add.newSubImage = ''; renderAdd(); };
     input.focus();
     return;
   }
   const subs = subsOf(add.cat);
-  row.innerHTML = subs.map(s => `<button class="sub-chip ${add.sub===s?'on':''}" data-sub="${esc(s)}">${esc(s)}</button>`).join('') +
+  row.innerHTML = subs.map(s => {
+    const custom = subIconOf(add.cat, s);
+    const icon = custom && custom.image
+      ? `<img class="sub-ico" src="${custom.image}" alt="">`
+      : `<span class="sub-ico">${esc(custom && custom.icon ? custom.icon : '')}</span>`;
+    return `<button class="sub-chip ${add.sub===s?'on':''}" data-sub="${esc(s)}">${icon}${esc(s)}</button>`;
+  }).join('') +
     `<button class="sub-add" id="sub-add-btn">＋ 新建子分类</button>`;
   $$('#sub-row .sub-chip').forEach(c => c.onclick = () => { add.sub = c.dataset.sub; renderAdd(); });
   $('#sub-add-btn').onclick = () => { add.creatingSub = true; renderAdd(); };
@@ -1129,12 +1239,12 @@ function bind() {
   $('#help-btn').onclick = () => toast('iCost Web · 演示版');
   $('#book-chip').onclick = () => toast('默认账本：联认账本_二');
 
-  $('#cal-prev').onclick = () => { state.month = addMonth(state.month, -1); state.selectedDay = null; renderCalendar(); renderTxnList(); renderLedgerCharts(); renderDonut(); renderSummary(); };
-  $('#cal-next').onclick = () => { state.month = addMonth(state.month, 1); state.selectedDay = null; renderCalendar(); renderTxnList(); renderLedgerCharts(); renderDonut(); renderSummary(); };
+  $('#cal-prev').onclick = () => { state.month = addMonth(state.month, -1); state.selectedDay = null; state.drillCategory = ''; renderCalendar(); renderTxnList(); renderLedgerCharts(); renderDonut(); renderSummary(); };
+  $('#cal-next').onclick = () => { state.month = addMonth(state.month, 1); state.selectedDay = null; state.drillCategory = ''; renderCalendar(); renderTxnList(); renderLedgerCharts(); renderDonut(); renderSummary(); };
 
-  $$('#ledger-chart-tabs .seg').forEach(s => s.onclick = () => { state.ledgerTab = s.dataset.mode; $$('#ledger-chart-tabs .seg').forEach(x=>x.classList.toggle('active',x===s)); renderLedgerCharts(); });
+  $$('#ledger-chart-tabs .seg').forEach(s => s.onclick = () => { state.ledgerTab = s.dataset.mode; state.drillCategory = ''; $$('#ledger-chart-tabs .seg').forEach(x=>x.classList.toggle('active',x===s)); renderLedgerCharts(); renderDonut(); });
   $$('#networth-tabs .seg').forEach(s => s.onclick = () => { state.networthTab = s.dataset.mode; $$('#networth-tabs .seg').forEach(x=>x.classList.toggle('active',x===s)); renderLedgerCharts(); });
-  $$('#cat-tabs .seg').forEach(s => s.onclick = () => { state.ledgerTab = s.dataset.mode; $$('#cat-tabs .seg').forEach(x=>x.classList.toggle('active',x===s)); renderDonut(); renderLedgerCharts(); });
+  $$('#cat-tabs .seg').forEach(s => s.onclick = () => { state.ledgerTab = s.dataset.mode; state.drillCategory = ''; $$('#cat-tabs .seg').forEach(x=>x.classList.toggle('active',x===s)); renderDonut(); renderLedgerCharts(); });
 
   $('#stats-mode-btn').onclick = () => {
     state.statsMode = state.statsMode === 'week' ? 'month' : 'week';
