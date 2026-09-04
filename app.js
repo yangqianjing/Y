@@ -722,6 +722,11 @@ function openAdd() {
   renderAdd();
   $('#add-overlay').classList.remove('hidden');
 }
+function closeAdd() {
+  $('#add-overlay').classList.add('hidden');
+}
+$('#add-close').onclick = closeAdd;
+$('#add-overlay').onclick = e => { if (e.target === e.currentTarget) closeAdd(); };
 
 /* ---------- 时间选择弹窗（滚轮） ---------- */
 const tp = { y:2024, mo:5, d:30, h:0, mi:0, s:0 };
