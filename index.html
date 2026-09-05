@@ -264,7 +264,6 @@
       <button class="pick-chip" id="pick-cat">🍩 分类</button>
       <button class="pick-chip" id="pick-sub">🏷️ 子分类</button>
     </div>
-    <div class="acc-menu hidden" id="acc-menu"></div>
     <div class="cat-picker" id="cat-picker"></div>
     <div class="sub-row" id="sub-row"></div>
     <button class="dt-chip" id="pick-datetime">📅 选择时间</button>
@@ -278,6 +277,16 @@
       <button data-key="7" aria-label="输入 7">7</button><button data-key="8" aria-label="输入 8">8</button><button data-key="9" aria-label="输入 9">9</button><button class="done" data-key="done" rowspan="2" aria-label="保存账单">完成</button>
       <button data-key="." aria-label="输入小数点">.</button><button data-key="0" aria-label="输入 0">0</button><button data-key="del" aria-label="删除最后一位">⌫</button>
     </div>
+  </div>
+</div>
+
+<div class="overlay hidden account-select-overlay" id="account-select-overlay">
+  <div class="account-select-panel" role="dialog" aria-modal="true" aria-labelledby="account-select-title">
+    <div class="account-select-head">
+      <div><b id="account-select-title">选择资金账户</b><span>选择用于本笔记账的账户</span></div>
+      <button class="export-close" id="account-select-close" aria-label="关闭账户选择">✕</button>
+    </div>
+    <div class="acc-menu hidden" id="acc-menu"></div>
   </div>
 </div>
 

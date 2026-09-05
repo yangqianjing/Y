@@ -1,0 +1,34 @@
+const { chromium } = require('playwright');
+
+(async () => {
+  const browser = await chromium.launch({ channel: 'msedge' });
+  const page = await browser.newPage({ viewport: { width: 500, height: 860 } });
+  await page.goto('file:///D:/1/Y/index.html');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForTimeout(300);
+  await page.locator('#fab-add').click();
+  await page.waitForTimeout(200);
+  const before = await page.locator('.add-panel').boundingBox();
+  if (await page.locator('.add-panel #acc-menu').count()) throw new Error('内嵌账户列表仍然存在');
+  await page.locator('#pick-account').click();
+  await page.waitForTimeout(250);
+  if (!(await page.locator('#account-select-overlay').isVisible())) throw new Error('账户弹窗未打开');
+  if ((await page.locator('#account-select-title').textContent()) !== '选择资金账户') throw new Error('标题错误');
+  await page.screenshot({ path: 'work/account-modal.png' });
+  const modal = await page.locator('.account-select-panel').boundingBox();
+  if (!modal || modal.width > 342) throw new Error(JSON.stringify(modal));
+  await page.locator('.acc-opt:has-text("支付宝")').click();
+  await page.waitForTimeout(250);
+  if (await page.locator('#account-select-overlay').isVisible()) throw new Error('选择后弹窗未关闭');
+  if (!(await page.locator('#pick-account').textContent()).includes('支付宝')) throw new Error('账户未选中');
+  const after = await page.locator('.add-panel').boundingBox();
+  if (Math.abs(after.height - before.height) > 2) throw new Error(`面板高度变化 ${before.height} -> ${after.height}`);
+  await page.locator('.add-tab[data-type="transfer"]').click();
+  await page.locator('#pick-cat').click();
+  if ((await page.locator('#account-select-title').textContent()) !== '选择转入账户') throw new Error('转入标题错误');
+  await page.keyboard.press('Escape');
+  if (await page.locator('#account-select-overlay').isVisible()) throw new Error('Esc 未关闭');
+  console.log('PASS 账户选择独立弹窗');
+  await browser.close();
+})().catch(error => { console.error(error); process.exit(1); });

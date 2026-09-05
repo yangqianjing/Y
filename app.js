@@ -1412,7 +1412,7 @@ function renderSettings() {
     <div class="set-item"><div class="s-label">导出 Excel<div class="s-desc">选择账单时间，导出标准 .xlsx</div></div><button class="set-btn" id="export-excel-open">选择时间</button></div>
     <div class="set-item"><div class="s-label">重置示例数据<div class="s-desc">清除本地修改，恢复演示数据</div></div><button class="set-btn danger" id="reset-btn">重置</button></div>
     <div class="set-group-title">关于</div>
-    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.13 · 本地完整版 · 数据仅保存在本机</div></div></div>`;
+    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.14 · 本地完整版 · 数据仅保存在本机</div></div></div>`;
   $('#save-budget').onclick = () => {
   const v = finiteAmount($('#budget-input').value);
     if (isNaN(v) || v <= 0) { toast('请输入有效的预算金额'); return; }
@@ -1426,7 +1426,7 @@ function renderSettings() {
   $('#currency-select').onchange = e => { state.currency = e.target.value; saveSettings(); refreshPage(); toast('货币显示已更新'); };
   $('#week-start-select').onchange = e => { state.weekStart = +e.target.value; saveSettings(); refreshPage(); toast('每周开始日已更新'); };
   $('#export-btn').onclick = () => {
-    const backup = { app:'iCost Web', version:'1.0.13', exportedAt:new Date().toISOString(), txs:state.txs, accounts:state.userAccounts, balances:state.userBalances, creditLimits:state.creditLimits, budget:state.budget, savedCards:[...state.savedCards], userSubs:state.userSubs, subIcons:state.subIcons, settings:{ currency:state.currency, weekStart:state.weekStart }, savingsDeposits:state.savingsDeposits, reimbursements:state.reimbursements };
+    const backup = { app:'iCost Web', version:'1.0.14', exportedAt:new Date().toISOString(), txs:state.txs, accounts:state.userAccounts, balances:state.userBalances, creditLimits:state.creditLimits, budget:state.budget, savedCards:[...state.savedCards], userSubs:state.userSubs, subIcons:state.subIcons, settings:{ currency:state.currency, weekStart:state.weekStart }, savingsDeposits:state.savingsDeposits, reimbursements:state.reimbursements };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type:'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = 'icost-web-backup.json'; a.click();
@@ -1879,8 +1879,9 @@ async function editAccountBalance(account) {
 
 function openAccountMenu(kind) {
   const menu = $('#acc-menu');
-  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
+  const overlay = $('#account-select-overlay');
   const selected = kind === 'to' ? add.toAccount : add.account;
+  $('#account-select-title').textContent = kind === 'to' ? '选择转入账户' : '选择资金账户';
   menu.innerHTML = allAccounts().map(a => `
     <button type="button" class="acc-opt ${selected===a.name?'on':''}" aria-pressed="${selected===a.name}" data-acc="${esc(a.name)}">
       <span class="acc-menu-ico" style="background:${a.color}">${accountIconHTML(a)}</span>
@@ -1890,16 +1891,24 @@ function openAccountMenu(kind) {
     `<button class="acc-opt add" data-acc="__add__"><span class="acc-menu-ico muted">＋</span><span class="acc-menu-name">新增账户</span></button>`;
   menu.classList.remove('hidden');
   $$('#acc-menu .acc-opt').forEach(o => o.onclick = () => {
-    if (o.dataset.acc === '__add__') { menu.classList.add('hidden'); openAccountModal(kind); return; }
+    if (o.dataset.acc === '__add__') { closeAccountSelect(); openAccountModal(kind); return; }
     if (kind === 'to') add.toAccount = o.dataset.acc;
     else {
       add.account = o.dataset.acc;
       if (add.toAccount === add.account) add.toAccount = (allAccounts().find(a => a.name !== add.account) || {}).name || add.toAccount;
     }
     if (add.toAccount === add.account) add.account = (allAccounts().find(a => a.name !== add.toAccount) || {}).name || add.account;
-    menu.classList.add('hidden');
+    closeAccountSelect();
     renderAdd();
   });
+  overlay.classList.remove('hidden');
+  menu.querySelector('.acc-opt.on')?.focus();
+}
+
+function closeAccountSelect() {
+  const menu = $('#acc-menu');
+  menu.classList.add('hidden');
+  $('#account-select-overlay').classList.add('hidden');
 }
 function keypadPress(key) {
   if (key === 'ac') add.amount = '0';
@@ -1983,11 +1992,12 @@ function openAdd() {
   add.creatingSub = false;
   if (!subsOf(add.cat).includes(add.sub)) add.sub = subsOf(add.cat)[0] || '';
   add.dt = defaultDT();
-  $('#acc-menu').classList.add('hidden');
+  closeAccountSelect();
   renderAdd();
   $('#add-overlay').classList.remove('hidden');
 }
 function closeAdd() {
+  closeAccountSelect();
   $('#add-overlay').classList.add('hidden');
 }
 $('#add-close').onclick = closeAdd;
@@ -2267,7 +2277,9 @@ function bind() {
   $('#export-from').oninput = () => { $$('#export-quick .export-chip').forEach(chip => chip.classList.remove('on')); updateExportPreview(); };
   $('#export-to').oninput = () => { $$('#export-quick .export-chip').forEach(chip => chip.classList.remove('on')); updateExportPreview(); };
   $('#pick-account').onclick = () => openAccountMenu('from');
-  $('#pick-cat').onclick = () => { $('#acc-menu').classList.add('hidden'); if (add.type === 'transfer') openAccountMenu('to'); };
+  $('#pick-cat').onclick = () => { if (add.type === 'transfer') openAccountMenu('to'); };
+  $('#account-select-close').onclick = closeAccountSelect;
+  $('#account-select-overlay').onclick = e => { if (e.target === e.currentTarget) closeAccountSelect(); };
   $('#time-prev-month').onclick = () => shiftTimeMonth(-1);
   $('#time-next-month').onclick = () => shiftTimeMonth(1);
   $('#pick-book').onclick = () => toast('默认账本：联认账本_二');
@@ -2282,6 +2294,7 @@ function bind() {
 
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
+    if (!$('#account-select-overlay').classList.contains('hidden')) { closeAccountSelect(); return; }
     if (!$('#prompt-overlay').classList.contains('hidden')) { finishAppPrompt(null); return; }
     if (!$('#account-overlay').classList.contains('hidden')) { closeAccountModal(); return; }
     if (!$('#time-overlay').classList.contains('hidden')) { $('#time-overlay').classList.add('hidden'); return; }
