@@ -11,7 +11,11 @@ function createWindow() {
     title: 'iCost',
     webPreferences: {
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false
     }
   });
   win.loadFile(path.join(__dirname, 'index.html'));

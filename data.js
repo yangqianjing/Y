@@ -13,6 +13,7 @@ const CATS = {
   '医疗':   { icon:'💊', color:'#4DC3FF', subs:['药品'] },
   '其他':   { icon:'🧾', color:'#A0A6B1', subs:['其他'] },
   '副业':   { icon:'💼', color:'#2FBF71', subs:['副业'], income:true },
+  '报销入账':{ icon:'🧾', color:'#34C77B', subs:['报销'], income:true },
   '返款入账':{ icon:'🍊', color:'#FF9F43', subs:['返款'], income:true },
   '退款入账':{ icon:'⭐', color:'#FFD166', subs:['退款'], income:true },
   '投资收益':{ icon:'📈', color:'#4D7BFE', subs:['收益'], income:true },

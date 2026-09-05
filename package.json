@@ -1,6 +1,6 @@
 {
   "name": "icost-app",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "iCost 记账 · Electron 桌面版",
   "main": "main.js",
   "author": "yangqianjing",
@@ -10,7 +10,7 @@
     "dist": "electron-builder --win"
   },
   "devDependencies": {
-    "electron": "^31.3.0",
+    "electron": "^44.2.0",
     "electron-builder": "^26.15.3"
   },
   "build": {

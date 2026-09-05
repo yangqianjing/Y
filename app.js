@@ -2,13 +2,17 @@
 
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
-const fmt = n => (Math.abs(n)).toLocaleString('zh-CN', { minimumFractionDigits:2, maximumFractionDigits:2 });
+const fmt = n => {
+  const value = Math.round(Number(n) * 100) / 100;
+  return (Number.isFinite(value) && value !== 0 ? value : 0).toLocaleString('zh-CN', { minimumFractionDigits:2, maximumFractionDigits:2 });
+};
 const CURRENCIES = { CNY:{ symbol:'¥', rate:1 }, USD:{ symbol:'$', rate:1/7.2 } };
 const money = n => {
   const currency = CURRENCIES[state.currency] || CURRENCIES.CNY;
-  return currency.symbol + fmt((Number(n) || 0) * currency.rate);
+  const amount = Math.round((Number(n) || 0) * currency.rate * 100) / 100;
+  return (amount < 0 ? '-' : '') + currency.symbol + fmt(Math.abs(amount));
 };
-const signedMoney = (n, type) => (type === 'expense' ? '-' : type === 'income' ? '+' : '') + money(n);
+const signedMoney = (n, type) => (type === 'expense' ? '-' : type === 'income' ? '+' : '') + money(Math.abs(Number(n) || 0));
 
 /* ---------- 状态 ---------- */
 const LS_KEY = 'icostweb_tx_v1';
@@ -68,26 +72,37 @@ function load() {
     const raw = localStorage.getItem(LS_KEY);
     state.txs = raw ? JSON.parse(raw) : [...TX_SEED];
   } catch { state.txs = [...TX_SEED]; }
+  const usedTxIds = new Set();
+  state.txs = (Array.isArray(state.txs) ? state.txs : []).map((tx, index) => normalizeTx(tx, index, usedTxIds)).filter(Boolean);
   const b = localStorage.getItem(LS_BUDGET);
-  if (b) state.budget = +b;
-  const s = localStorage.getItem(LS_SAVED);
-  state.savedCards = new Set(s ? JSON.parse(s) : PLANS.find(p=>p.id==='plan2').cards.map(c=>c.id));
+  const parsedBudget = finiteAmount(b);
+  if (Number.isFinite(parsedBudget) && parsedBudget > 0) state.budget = Math.round(parsedBudget * 100) / 100;
+  let savedIds = [];
+  try {
+    const s = localStorage.getItem(LS_SAVED);
+    savedIds = s ? JSON.parse(s) : PLANS.find(p=>p.id==='plan2').cards.map(c=>c.id);
+  } catch { savedIds = PLANS.find(p=>p.id==='plan2').cards.map(c=>c.id); }
+  state.savedCards = new Set((Array.isArray(savedIds) ? savedIds : []).map(String).filter(Boolean));
   try {
     const u = localStorage.getItem(LS_SUBS);
     state.userSubs = u ? JSON.parse(u) : {};
   } catch { state.userSubs = {}; }
+  state.userSubs = normalizeUserSubs(state.userSubs);
   try {
     const s = localStorage.getItem(LS_SUB_ICONS);
     state.subIcons = s ? JSON.parse(s) : {};
   } catch { state.subIcons = {}; }
+  state.subIcons = normalizeSubIcons(state.subIcons);
   try {
     const a = localStorage.getItem(LS_ACCOUNTS);
     state.userAccounts = a ? JSON.parse(a) : [];
   } catch { state.userAccounts = []; }
+  state.userAccounts = (Array.isArray(state.userAccounts) ? state.userAccounts : []).map(normalizeAccount).filter(Boolean);
   try {
     const b = localStorage.getItem(LS_BALANCES);
     state.userBalances = b ? JSON.parse(b) : {};
   } catch { state.userBalances = {}; }
+  state.userBalances = normalizeAmountMap(state.userBalances);
   try {
     const setting = JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}');
     state.currency = CURRENCIES[setting.currency] ? setting.currency : 'CNY';
@@ -97,14 +112,18 @@ function load() {
     const saving = localStorage.getItem(LS_SAVINGS);
     state.savingsDeposits = saving ? JSON.parse(saving) : {};
   } catch { state.savingsDeposits = {}; }
+  state.savingsDeposits = normalizeSavings(state.savingsDeposits);
   try {
     const reimb = localStorage.getItem(LS_REIMB);
     state.reimbursements = reimb ? JSON.parse(reimb) : [{ id:'r-seed', date:'2024-05-28', amount:108, note:'客户差旅', status:'pending' }];
   } catch { state.reimbursements = []; }
+  state.reimbursements = (Array.isArray(state.reimbursements) ? state.reimbursements : []).map(normalizeReimbursement).filter(Boolean)
+    .map(row => ({ ...row, txId: row.txId && state.txs.some(tx => tx.id === row.txId) ? row.txId : '' }));
   try {
     const limits = localStorage.getItem(LS_CREDIT_LIMITS);
     state.creditLimits = limits ? JSON.parse(limits) : {};
   } catch { state.creditLimits = {}; }
+  state.creditLimits = normalizeAmountMap(state.creditLimits);
 }
 function saveTxs() { localStorage.setItem(LS_KEY, JSON.stringify(state.txs)); }
 function saveSettings() { localStorage.setItem(LS_SETTINGS, JSON.stringify({ currency:state.currency, weekStart:state.weekStart })); }
@@ -119,6 +138,142 @@ const finiteAmount = value => {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : NaN;
 };
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/;
+function roundedAmount(value) {
+  const amount = finiteAmount(value);
+  return Number.isFinite(amount) ? Math.round(amount * 100) / 100 : NaN;
+}
+function cleanText(value, maxLength = 60) {
+  return Array.from(String(value ?? '').replace(/[\u0000-\u001f\u007f<>]/g, ' ').trim()).slice(0, maxLength).join('');
+}
+function safeId(value, fallback) {
+  const id = cleanText(value, 64).replace(/[^A-Za-z0-9_-]/g, '');
+  return id || fallback;
+}
+function safeDate(value) {
+  const date = cleanText(value, 10);
+  return DATE_RE.test(date) && !Number.isNaN(new Date(`${date}T00:00:00`).getTime()) ? date : '';
+}
+function safeTime(value) {
+  const time = cleanText(value, 8);
+  return TIME_RE.test(time) ? (time.length === 5 ? `${time}:00` : time) : '';
+}
+function safeIcon(value, fallback = '') {
+  const icon = Array.from(cleanText(value, 8)).filter(ch => !/[<>&"']/.test(ch)).slice(0, 4).join('');
+  return icon || fallback;
+}
+function safeColor(value, fallback = '#A0A6B1') {
+  const color = cleanText(value, 24);
+  return /^#[0-9a-f]{3,8}$/i.test(color) ? color : fallback;
+}
+function safeImage(value) {
+  const image = cleanText(value, 2000000).trim();
+  return /^(?:data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+)$/.test(image) && image.length <= 2000000 ? image : '';
+}
+function normalizeAmountMap(value) {
+  const result = {};
+  Object.entries(value && typeof value === 'object' ? value : {}).forEach(([key, amount]) => {
+    const id = safeId(key, '');
+    const parsed = roundedAmount(amount);
+    if (id && Number.isFinite(parsed)) result[id] = parsed;
+  });
+  return result;
+}
+function normalizeTx(tx, index = 0, usedIds = new Set()) {
+  if (!tx || typeof tx !== 'object') return null;
+  const type = ['expense', 'income', 'transfer'].includes(tx.type) ? tx.type : '';
+  const date = safeDate(tx.date);
+  const amount = roundedAmount(tx.amount);
+  const account = cleanText(tx.account, 24);
+  if (!type || !date || !(amount > 0) || !account) return null;
+  const time = safeTime(tx.time) || '00:00:00';
+  let toAccount = '';
+  if (type === 'transfer') {
+    toAccount = cleanText(tx.toAccount, 24);
+    if (!toAccount || toAccount === account) return null;
+  }
+  const offer = type === 'expense' ? roundedAmount(tx.offer || 0) : 0;
+  if (!Number.isFinite(offer) || offer < 0 || offer >= amount) return null;
+  const note = cleanText(tx.note, 80);
+  const cat = type === 'transfer' ? '转账' : (cleanText(tx.cat, 12) || (type === 'income' ? '副业' : '其他'));
+  const sub = type === 'transfer' ? '' : cleanText(tx.sub, 12);
+  let id = safeId(tx.id, `tx-${index}-${Date.now().toString(36)}`);
+  while (usedIds.has(id)) id = `${id}-${Math.random().toString(36).slice(2, 7)}`;
+  usedIds.add(id);
+  const normalized = { id, date, time, type, cat, sub, amount, account };
+  if (type === 'transfer') normalized.toAccount = toAccount;
+  if (type === 'expense' && offer > 0) normalized.offer = offer;
+  if (note) normalized.note = note;
+  return normalized;
+}
+function normalizeAccount(account) {
+  if (!account || typeof account !== 'object') return null;
+  const id = safeId(account.id, '');
+  const name = cleanText(account.name, 16);
+  const group = ['fund', 'credit', 'recharge'].includes(account.group) ? account.group : '';
+  const balance = roundedAmount(account.balance);
+  if (!id || !name || !group || !Number.isFinite(balance)) return null;
+  return {
+    id, name, group, balance,
+    color: safeColor(account.color),
+    icon: safeIcon(account.icon, '💳'),
+    iconImage: safeImage(account.iconImage),
+    sub: cleanText(account.sub, 40),
+    ...(group === 'credit' ? { credit: true } : {})
+  };
+}
+function normalizeReimbursement(row) {
+  if (!row || typeof row !== 'object') return null;
+  const amount = roundedAmount(row.amount);
+  const date = safeDate(row.date);
+  const status = ['pending', 'done', 'in'].includes(row.status) ? row.status : '';
+  if (!(amount > 0) || !date || !status) return null;
+  return {
+    id: safeId(row.id, `reimb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`),
+    date, amount, status,
+    note: cleanText(row.note, 30),
+    accountId: safeId(row.accountId, ''),
+    txId: safeId(row.txId, '')
+  };
+}
+function normalizeUserSubs(value) {
+  const result = {};
+  Object.entries(value && typeof value === 'object' ? value : {}).forEach(([key, subs]) => {
+    const cat = cleanText(key, 12);
+    if (!cat || !Array.isArray(subs)) return;
+    const list = [...new Set(subs.map(sub => cleanText(sub, 12)).filter(Boolean))];
+    if (list.length) result[cat] = list;
+  });
+  return result;
+}
+function normalizeSubIcons(value) {
+  const result = {};
+  Object.entries(value && typeof value === 'object' ? value : {}).forEach(([key, meta]) => {
+    const [cat, sub] = cleanText(key, 32).split('||');
+    if (!cat || !sub || !meta || typeof meta !== 'object') return;
+    const icon = safeIcon(meta.icon);
+    const image = safeImage(meta.image);
+    if (icon || image) result[`${cat}||${sub}`] = { icon, image };
+  });
+  return result;
+}
+function normalizeSavings(value) {
+  const result = {};
+  Object.entries(value && typeof value === 'object' ? value : {}).forEach(([key, deposits]) => {
+    const planId = safeId(key, '');
+    if (!planId || !Array.isArray(deposits)) return;
+    const rows = deposits.map(item => {
+      if (!item || typeof item !== 'object') return null;
+      const amount = roundedAmount(item.amount);
+      const date = safeDate(item.date);
+      if (!(amount > 0) || !date) return null;
+      return { id: safeId(item.id, `deposit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`), amount, date };
+    }).filter(Boolean);
+    if (rows.length) result[planId] = rows;
+  });
+  return result;
+}
 function creditLimitOf(account) {
   return state.creditLimits[account.id] !== undefined ? state.creditLimits[account.id] : account.limit;
 }
@@ -128,9 +283,9 @@ function renderReimbManager(totals) {
       <div class="reimb-main"><b>${money(r.amount)}</b><span>${esc(r.note || '未填写事由')} · ${r.date || '未选日期'}</span></div>
       <div class="reimb-ops">
         <span class="reimb-status ${r.status}">${r.status === 'pending' ? '待报销' : r.status === 'done' ? '已报销' : '已入账'}</span>
-        ${r.status === 'pending' ? `<button class="reimb-btn" data-reimb-action="done" data-id="${r.id}">已报销</button>` : ''}
-        ${r.status === 'done' ? `<button class="reimb-btn primary" data-reimb-action="in" data-id="${r.id}">入账</button>` : ''}
-        <button class="reimb-btn danger" data-reimb-action="delete" data-id="${r.id}">删除</button>
+        ${r.status === 'pending' ? `<button class="reimb-btn" data-reimb-action="done" data-id="${esc(r.id)}">已报销</button>` : ''}
+        ${r.status === 'done' ? `<button class="reimb-btn primary" data-reimb-action="in" data-id="${esc(r.id)}">入账</button>` : ''}
+        <button class="reimb-btn danger" data-reimb-action="delete" data-id="${esc(r.id)}">删除</button>
       </div>
     </div>`).join('');
   return `
@@ -165,7 +320,7 @@ function setReimbursementStatus(id, status) {
     const account = allAccounts().find(a => a.id === (row.accountId || allAccounts()[0]?.id));
     if (!account) { toast('请先添加资金账户'); return; }
     const txId = 'r' + Date.now() + '-' + Math.random().toString(36).slice(2,7);
-    state.txs.push({ id:txId, date:row.date, time:pad2(new Date().getHours()) + ':' + pad2(new Date().getMinutes()) + ':00', type:'income', cat:'副业', sub:'报销', amount:Number(row.amount), note:'报销入账：' + (row.note || '未填写事由'), account:account.name });
+    state.txs.push({ id:txId, date:row.date, time:pad2(new Date().getHours()) + ':' + pad2(new Date().getMinutes()) + ':00', type:'income', cat:'报销入账', sub:'报销', amount:Number(row.amount), note:'报销入账：' + (row.note || '未填写事由'), account:account.name });
     row.txId = txId;
     row.accountId = account.id;
     saveAccountBalance(account, accountBalance(account) + Number(row.amount));
@@ -205,7 +360,11 @@ function daysInMonth(m) { const [y, mo] = m.split('-').map(Number); return new D
 function fmtMonthTitle(m) { const [y, mo] = m.split('-'); return `${y}年${+mo}月`; }
 function addMonth(m, delta) { const [y, mo] = m.split('-').map(Number); const d = new Date(y, mo - 1 + delta, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
 function addDays(d, delta) { const date = new Date(d + 'T00:00:00'); date.setDate(date.getDate() + delta); return localISO(date); }
-function txNet(t) { return t.amount - (t.offer || 0); }
+function txNet(t) {
+  const amount = finiteAmount(t && t.amount);
+  const offer = finiteAmount(t && t.offer);
+  return Math.round(((Number.isFinite(amount) ? amount : 0) - (Number.isFinite(offer) && offer > 0 ? offer : 0)) * 100) / 100;
+}
 function catOf(name) { return CATS[name] || { icon:'🧾', color:'#A0A6B1', subs:[] }; }
 function allAccounts() { return [...ACCOUNTS, ...state.userAccounts]; }
 function accOf(id) { return allAccounts().find(a => a.id === id) || { id, name:id, color:'#A0A6B1', icon:'💳' }; }
@@ -214,11 +373,12 @@ function accountBalance(account) {
   return account.balance !== undefined ? account.balance : (ASSET_AMOUNTS[account.id] || 0);
 }
 function accountTxEffect(tx, accountName) {
-  if (tx.type === 'expense' && tx.account === accountName) return -Number(tx.amount || 0);
-  if (tx.type === 'income' && tx.account === accountName) return Number(tx.amount || 0);
+  const amount = txNet(tx);
+  if (tx.type === 'expense' && tx.account === accountName) return -amount;
+  if (tx.type === 'income' && tx.account === accountName) return amount;
   if (tx.type === 'transfer') {
-    if (tx.account === accountName) return -Number(tx.amount || 0);
-    if (tx.toAccount === accountName) return Number(tx.amount || 0);
+    if (tx.account === accountName) return -amount;
+    if (tx.toAccount === accountName) return amount;
   }
   return 0;
 }
@@ -235,7 +395,7 @@ function assetSummaryAt(date = '') {
   return { total, debt, net: total - debt, fund: balances.filter(b=>b.group==='fund').reduce((s,b)=>s+b.value,0), recharge: balances.filter(b=>b.group==='recharge').reduce((s,b)=>s+b.value,0) };
 }
 function accountIconHTML(account, style = '') {
-  if (account.iconImage) return `<img class="icon-img" src="${account.iconImage}" alt="${esc(account.name || '')}" style="${style}">`;
+  if (account.iconImage) return `<img class="icon-img" src="${esc(account.iconImage)}" alt="${esc(account.name || '')}" style="${esc(style)}">`;
   return esc(account.icon || '💳');
 }
 function saveAccountBalance(account, value) {
@@ -266,15 +426,15 @@ function subIconOf(cat, sub) {
 }
 function iconMarkup(cat, sub, fallbackIcon) {
   const custom = subIconOf(cat, sub);
-  if (custom && custom.image) return `<img class="icon-img" src="${custom.image}" alt="${esc(sub || cat || '')}">`;
+  if (custom && custom.image) return `<img class="icon-img" src="${esc(custom.image)}" alt="${esc(sub || cat || '')}">`;
   return esc(custom && custom.icon ? custom.icon : fallbackIcon);
 }
 function addUserSub(cat, name, icon = '', image = '') {
-  const n = (name || '').trim();
+  const n = cleanText(name, 12);
   if (!n) { toast('请输入子分类名称'); return; }
   if (subsOf(cat).some(s => s === n)) {
     if (icon || image) {
-      state.subIcons[subIconKey(cat, n)] = { icon, image };
+      state.subIcons[subIconKey(cat, n)] = { icon: safeIcon(icon), image: safeImage(image) };
       localStorage.setItem(LS_SUB_ICONS, JSON.stringify(state.subIcons));
     }
     add.newSubIcon = ''; add.newSubImage = '';
@@ -283,7 +443,7 @@ function addUserSub(cat, name, icon = '', image = '') {
     return;
   }
   if (icon || image) {
-    state.subIcons[subIconKey(cat, n)] = { icon, image };
+    state.subIcons[subIconKey(cat, n)] = { icon: safeIcon(icon), image: safeImage(image) };
     localStorage.setItem(LS_SUB_ICONS, JSON.stringify(state.subIcons));
   }
   (state.userSubs[cat] = state.userSubs[cat] || []).push(n);
@@ -353,7 +513,7 @@ function readSubIconImage(file, callback) {
   reader.onerror = () => toast('图片读取失败');
   reader.readAsDataURL(file);
 }
-function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function toast(msg) {
   const t = $('#toast');
@@ -376,19 +536,25 @@ function barChart(el, data, { color = '#FF5D5D', avg = null, yFmt = v => v } = {
   el.innerHTML = '';
   const W = 640, H = 190, padL = 10, padR = 10, padT = 12, padB = 24;
   const iw = W - padL - padR, ih = H - padT - padB;
-  const max = Math.max(...data.map(d => d.v), avg || 0) * 1.15 || 1;
+  const values = data.map(d => Number(d.v) || 0);
+  const low = Math.min(0, ...values, Number.isFinite(avg) ? avg : 0);
+  const high = Math.max(0, ...values, Number.isFinite(avg) ? avg : 0);
+  const span = (high - low) || 1;
   const svg = sv('svg', { viewBox:`0 0 ${W} ${H}`, style:'width:100%;height:100%' }, el);
-  if (avg) {
-    const y = padT + ih - (avg / max) * ih;
+  const zeroY = padT + ih - ((0 - low) / span) * ih;
+  sv('line', { x1:padL, x2:W-padR, y1:zeroY, y2:zeroY, stroke:'#d4d8e0', 'stroke-width':1 }, svg);
+  if (avg !== null && Number.isFinite(avg)) {
+    const y = padT + ih - ((avg - low) / span) * ih;
     sv('line', { x1:padL, x2:W-padR, y1:y, y2:y, stroke:'#9aa0ab', 'stroke-width':1, 'stroke-dasharray':'4 4' }, svg);
   }
   const n = data.length;
   const step = iw / n, bw = Math.max(2, step * 0.55);
   data.forEach((d, i) => {
-    const h = (d.v / max) * ih;
+    const value = Number(d.v) || 0;
+    const y = padT + ih - ((value - low) / span) * ih;
+    const h = Math.max(Math.abs(y - zeroY), value ? 2 : 0);
     const x = padL + i * step + (step - bw) / 2;
-    const y = padT + ih - h;
-    const r = sv('rect', { x, y, width:bw, height:Math.max(h, d.v>0?2:0), rx:Math.min(2,bw/2), fill:d.v>0?color:'#e3e5ea' }, svg);
+    const r = sv('rect', { x, y:Math.min(y, zeroY), width:bw, height:h, rx:Math.min(2,bw/2), fill:value >= 0 ? color : '#FF8A8A' }, svg);
     const t = document.createElementNS(NS,'title');
     t.textContent = `${d.label}  ${yFmt(d.v)}`;
     r.appendChild(t);
@@ -492,7 +658,8 @@ function dailyAgg(m) {
   const arr = Array.from({ length:n }, (_, i) => ({ day:i+1, exp:0, inc:0 }));
   txsInMonth(m).forEach(t => {
     const i = dayNum(t.date) - 1;
-    if (arr[i]) { if (t.type === 'expense') arr[i].exp += txNet(t); else arr[i].inc += txNet(t); }
+    if (arr[i] && t.type === 'expense') arr[i].exp += txNet(t);
+    if (arr[i] && t.type === 'income') arr[i].inc += txNet(t);
   });
   return arr;
 }
@@ -591,7 +758,7 @@ function txnItemHTML(t) {
     <div class="txn-right">
       <div class="txn-amt transfer">${money(t.amount)}</div>
       <div class="txn-acc">转入 ${esc(t.toAccount)}</div>
-      <div class="txn-actions"><button data-action="edit" title="编辑">✏️</button><button data-action="delete" title="删除">🗑️</button></div>
+      <div class="txn-actions"><button data-action="edit" title="编辑" aria-label="编辑转账">✏️</button><button data-action="delete" title="删除" aria-label="删除转账">🗑️</button></div>
     </div>
   </div>`;
   }
@@ -611,7 +778,7 @@ function txnItemHTML(t) {
     <div class="txn-right">
       <div class="txn-amt ${t.type}">${signedMoney(txNet(t), t.type)}</div>
       <div class="txn-acc">${esc(t.account)}</div>
-      <div class="txn-actions"><button data-action="edit" title="编辑">✏️</button><button data-action="delete" title="删除">🗑️</button></div>
+      <div class="txn-actions"><button data-action="edit" title="编辑" aria-label="编辑账单">✏️</button><button data-action="delete" title="删除" aria-label="删除账单">🗑️</button></div>
     </div>
   </div>`;
 }
@@ -697,7 +864,7 @@ function renderTxnList() {
 function renderLedgerCharts() {
   const agg = dailyAgg(state.month);
   const mode = state.ledgerTab;
-  const data = agg.map(d => ({ v: mode==='expense'?d.exp:mode==='income'?d.inc:d.inc-d.exp, day:d.day, label:`${+state.month.slice(5)}月${d.day}日`, axis: d.day===1?`${state.month.slice(5)}-1`:d.day===16?`${state.month.slice(5)}-16`:d.day===agg.length?`${state.month.slice(5)}-31`:'' }));
+  const data = agg.map(d => ({ v: mode==='expense'?d.exp:mode==='income'?d.inc:d.inc-d.exp, day:d.day, label:`${+state.month.slice(5)}月${d.day}日`, axis: d.day===1?`${state.month.slice(5)}-1`:d.day===16?`${state.month.slice(5)}-16`:d.day===agg.length?`${state.month.slice(5)}-${daysInMonth(state.month)}`:'' }));
   const vals = data.map(d=>d.v);
   const avg = vals.reduce((s,v)=>s+v,0)/vals.length;
   const peak = data.reduce((a,b)=>b.v>a.v?b:a, data[0]);
@@ -765,7 +932,16 @@ function statsRangeDays() {
   return out;
 }
 
+function updateStatsModeButton() {
+  const button = $('#stats-mode-btn');
+  if (button) button.textContent = state.statsMode === 'week' ? '按周统计' : '按月统计';
+}
+function currentMonthWeekRange() {
+  const end = `${state.month}-${String(daysInMonth(state.month)).padStart(2, '0')}`;
+  return [addDays(end, -6), end];
+}
 function renderStats() {
+  updateStatsModeButton();
   const days = statsRangeDays();
   const from = days[0], to = days[days.length-1];
   const { txs, exp, inc, bal, offers } = rangeAgg(from, to);
@@ -776,7 +952,7 @@ function renderStats() {
 
   const incomeText = t => [t.cat, t.sub, t.note || ''].join(' ');
   const refunds = txs.filter(t => t.type === 'income' && /退款|返款/.test(incomeText(t))).reduce((s,t)=>s+t.amount,0);
-  const consumptionIncome = txs.filter(t => t.type === 'income' && !['副业','工资','投资收益'].includes(t.cat) && !/报销|退款|返款/.test(incomeText(t))).reduce((s,t)=>s+t.amount,0);
+  const consumptionIncome = txs.filter(t => t.type === 'income' && !['副业','工资','投资收益','报销入账'].includes(t.cat) && !/报销|退款|返款/.test(incomeText(t))).reduce((s,t)=>s+t.amount,0);
   const fees = txs.filter(t => [t.cat, t.sub, t.note || ''].join(' ').includes('手续费')).reduce((s,t)=>s+t.amount,0);
   const repayment = txs.filter(t => {
     if (t.type !== 'transfer') return false;
@@ -1236,7 +1412,7 @@ function renderSettings() {
     <div class="set-item"><div class="s-label">导出 Excel<div class="s-desc">选择账单时间，导出标准 .xlsx</div></div><button class="set-btn" id="export-excel-open">选择时间</button></div>
     <div class="set-item"><div class="s-label">重置示例数据<div class="s-desc">清除本地修改，恢复演示数据</div></div><button class="set-btn danger" id="reset-btn">重置</button></div>
     <div class="set-group-title">关于</div>
-    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.12 · 本地完整版 · 数据仅保存在本机</div></div></div>`;
+    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.13 · 本地完整版 · 数据仅保存在本机</div></div></div>`;
   $('#save-budget').onclick = () => {
   const v = finiteAmount($('#budget-input').value);
     if (isNaN(v) || v <= 0) { toast('请输入有效的预算金额'); return; }
@@ -1250,7 +1426,7 @@ function renderSettings() {
   $('#currency-select').onchange = e => { state.currency = e.target.value; saveSettings(); refreshPage(); toast('货币显示已更新'); };
   $('#week-start-select').onchange = e => { state.weekStart = +e.target.value; saveSettings(); refreshPage(); toast('每周开始日已更新'); };
   $('#export-btn').onclick = () => {
-    const backup = { app:'iCost Web', version:'1.0.12', exportedAt:new Date().toISOString(), txs:state.txs, accounts:state.userAccounts, balances:state.userBalances, creditLimits:state.creditLimits, budget:state.budget, savedCards:[...state.savedCards], userSubs:state.userSubs, subIcons:state.subIcons, settings:{ currency:state.currency, weekStart:state.weekStart }, savingsDeposits:state.savingsDeposits, reimbursements:state.reimbursements };
+    const backup = { app:'iCost Web', version:'1.0.13', exportedAt:new Date().toISOString(), txs:state.txs, accounts:state.userAccounts, balances:state.userBalances, creditLimits:state.creditLimits, budget:state.budget, savedCards:[...state.savedCards], userSubs:state.userSubs, subIcons:state.subIcons, settings:{ currency:state.currency, weekStart:state.weekStart }, savingsDeposits:state.savingsDeposits, reimbursements:state.reimbursements };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type:'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = 'icost-web-backup.json'; a.click();
@@ -1263,28 +1439,21 @@ function renderSettings() {
       try {
         const data = JSON.parse(reader.result);
         if (!data || !Array.isArray(data.txs)) throw new Error('bad backup');
-        state.txs = data.txs.filter(t => t && typeof t === 'object' && /^\d{4}-\d{2}-\d{2}$/.test(t.date || '') && ['expense','income','transfer'].includes(t.type) && finiteAmount(t.amount) > 0);
-        state.userAccounts = (Array.isArray(data.accounts) ? data.accounts : []).filter(a => a && typeof a === 'object' && a.id && a.name && ['fund','credit','recharge'].includes(a.group)).map(a => ({
-          ...a,
-          balance: Number.isFinite(finiteAmount(a.balance)) ? finiteAmount(a.balance) : 0,
-          credit: a.group === 'credit' ? true : undefined
-        }));
-        state.userBalances = {};
-        Object.entries(data.balances && typeof data.balances === 'object' ? data.balances : {}).forEach(([id, value]) => {
-          const amount = finiteAmount(value);
-          if (Number.isFinite(amount)) state.userBalances[id] = amount;
-        });
-        state.creditLimits = {};
-        Object.entries(data.creditLimits && typeof data.creditLimits === 'object' ? data.creditLimits : {}).forEach(([id, value]) => {
-          const amount = finiteAmount(value);
-          if (Number.isFinite(amount)) state.creditLimits[id] = amount;
-        });
-        state.budget = Number(data.budget) > 0 ? Number(data.budget) : BUDGET;
+        const usedTxIds = new Set();
+        state.txs = data.txs.map((tx, index) => normalizeTx(tx, index, usedTxIds)).filter(Boolean);
+        state.userAccounts = (Array.isArray(data.accounts) ? data.accounts : []).map(normalizeAccount).filter(Boolean)
+          .filter((account, index, rows) => rows.findIndex(item => item.id === account.id) === index)
+          .filter((account, index, rows) => rows.findIndex(item => item.name === account.name) === index);
+        state.userBalances = normalizeAmountMap(data.balances);
+        state.creditLimits = normalizeAmountMap(data.creditLimits);
+        const importedBudget = roundedAmount(data.budget);
+        state.budget = Number.isFinite(importedBudget) && importedBudget > 0 ? importedBudget : BUDGET;
         state.savedCards = new Set((Array.isArray(data.savedCards) ? data.savedCards : []).map(String).filter(Boolean));
-        state.userSubs = Object.fromEntries(Object.entries(data.userSubs && typeof data.userSubs === 'object' ? data.userSubs : {}).map(([key, value]) => [String(key), Array.isArray(value) ? value.map(String).filter(Boolean) : []]));
-        state.subIcons = Object.fromEntries(Object.entries(data.subIcons && typeof data.subIcons === 'object' ? data.subIcons : {}).filter(([, value]) => value && typeof value === 'object').map(([key, value]) => [String(key), { icon:String(value.icon || ''), image:String(value.image || '') }]));
-        state.savingsDeposits = Object.fromEntries(Object.entries(data.savingsDeposits && typeof data.savingsDeposits === 'object' ? data.savingsDeposits : {}).map(([key, value]) => [String(key), Array.isArray(value) ? value.filter(item => item && Number.isFinite(finiteAmount(item.amount)) && finiteAmount(item.amount) > 0).map(item => ({ ...item, amount:finiteAmount(item.amount) })) : []]));
-        state.reimbursements = (Array.isArray(data.reimbursements) ? data.reimbursements : []).filter(r => r && typeof r === 'object' && /^\d{4}-\d{2}-\d{2}$/.test(r.date || '') && finiteAmount(r.amount) > 0 && ['pending','done','in'].includes(r.status));
+        state.userSubs = normalizeUserSubs(data.userSubs);
+        state.subIcons = normalizeSubIcons(data.subIcons);
+        state.savingsDeposits = normalizeSavings(data.savingsDeposits);
+        state.reimbursements = (Array.isArray(data.reimbursements) ? data.reimbursements : []).map(normalizeReimbursement).filter(Boolean)
+          .map(row => ({ ...row, txId: row.txId && state.txs.some(tx => tx.id === row.txId) ? row.txId : '' }));
         if (data.settings && CURRENCIES[data.settings.currency]) state.currency = data.settings.currency;
         if (data.settings && [0,1].includes(data.settings.weekStart)) state.weekStart = data.settings.weekStart;
         localStorage.setItem(LS_KEY, JSON.stringify(state.txs));
@@ -1379,11 +1548,13 @@ function renderSearch() {
   const exp = txs.filter(t=>t.type==='expense').reduce((s,t)=>s+txNet(t),0);
   const inc = txs.filter(t=>t.type==='income').reduce((s,t)=>s+txNet(t),0);
   const offers = txs.reduce((s,t)=>s+(t.offer||0),0);
+  const refunds = txs.filter(t => t.type === 'income' && /退款|返款/.test([t.cat, t.sub, t.note || ''].join(' '))).reduce((s,t)=>s+txNet(t),0);
+  const fees = txs.filter(t => t.type === 'expense' && [t.cat, t.sub, t.note || ''].join(' ').includes('手续费')).reduce((s,t)=>s+txNet(t),0);
   const chip = (label, val, cls='') => `<div class="total-chip ${cls}"><span class="tl">${label}</span><span class="tv">${val}</span></div>`;
   renderSearchFilterPanel();
   $('#search-totals').innerHTML =
     chip('支出=', money(exp), 'red') + chip('收入=', money(inc), 'green') + chip('结余', money(inc-exp)) +
-    chip('手续费', money(0)) + chip('优惠', money(offers)) + chip('退款', money(0));
+    chip('手续费', money(fees)) + chip('优惠', money(offers)) + chip('退款', money(refunds));
 
   let list = [...txs];
   if (state.sortDesc) {
@@ -1478,7 +1649,7 @@ function renderSubRow() {
     const preview = () => {
       const meta = catOf(add.cat);
       $('#new-sub-icon').innerHTML = add.newSubImage
-        ? `<img src="${add.newSubImage}" alt="自定义图标">`
+        ? `<img src="${esc(add.newSubImage)}" alt="自定义图标">`
         : esc(add.newSubIcon || meta.icon);
     };
     const confirm = () => addUserSub(add.cat, input.value, emojiInput.value.trim(), add.newSubImage);
@@ -1503,7 +1674,7 @@ function renderSubRow() {
   row.innerHTML = subs.map(s => {
     const custom = subIconOf(add.cat, s);
     const icon = custom && custom.image
-      ? `<img class="sub-ico" src="${custom.image}" alt="">`
+      ? `<img class="sub-ico" src="${esc(custom.image)}" alt="">`
       : `<span class="sub-ico">${esc(custom && custom.icon ? custom.icon : '')}</span>`;
     const canManage = (state.userSubs[add.cat] || []).includes(s);
     return `<div class="sub-chip ${add.sub===s?'on':''}" role="button" tabindex="0" aria-pressed="${add.sub===s}" data-sub="${esc(s)}">
@@ -1531,7 +1702,7 @@ const ACCOUNT_COLORS = ['#4D7BFE','#4D9FFF','#2FBF71','#FF9F43','#FF5D5D','#FFD1
 
 function previewAccountIcon() {
   $('#acc-icon-preview').innerHTML = accountForm.iconImage
-    ? `<img src="${accountForm.iconImage}" alt="账户图标">`
+    ? `<img src="${esc(accountForm.iconImage)}" alt="账户图标">`
     : esc(accountForm.icon || '💳');
 }
 
@@ -1559,7 +1730,7 @@ function openAccountModal(source = 'asset', editId = '') {
     $$('#acc-color-picker .color-dot').forEach(x => x.classList.toggle('on', x === d));
   });
   $('#acc-form-icon').oninput = e => accountForm.icon = e.target.value.trim() || '💳';
-  $('#acc-form-icon').oninput = e => { accountForm.icon = e.target.value.trim() || '💳'; accountForm.iconImage = ''; previewAccountIcon(); };
+  $('#acc-form-icon').oninput = e => { accountForm.icon = safeIcon(e.target.value, '💳'); accountForm.iconImage = ''; previewAccountIcon(); };
   $('#acc-form-image').onchange = e => {
     readSubIconImage(e.target.files[0], dataUrl => { accountForm.iconImage = dataUrl; previewAccountIcon(); toast('图标已就绪'); });
     e.target.value = '';
@@ -1576,7 +1747,7 @@ function closeAccountModal() {
 }
 
 function saveAccount() {
-  const name = $('#acc-form-name').value.trim();
+  const name = cleanText($('#acc-form-name').value, 16);
   if (!name) { toast('请输入账户名称'); return; }
   if (name.length > 16) { toast('账户名称不能超过 16 个字'); return; }
   if (allAccounts().some(a => a.name === name && a.id !== state.accountEditingId)) { toast('账户名称已存在'); return; }
@@ -1587,7 +1758,7 @@ function saveAccount() {
   let account;
   if (editing) {
     const oldName = editing.name;
-    Object.assign(editing, { name, color:accountForm.color, icon:accountForm.icon, iconImage:accountForm.iconImage, balance });
+    Object.assign(editing, { name, color:safeColor(accountForm.color), icon:safeIcon(accountForm.icon, '💳'), iconImage:safeImage(accountForm.iconImage), balance });
     if (oldName !== name) {
       state.txs.forEach(tx => {
         if (tx.account === oldName) tx.account = name;
@@ -1597,7 +1768,7 @@ function saveAccount() {
     }
     account = editing;
   } else {
-    account = { id:'u' + Date.now() + '-' + Math.random().toString(36).slice(2,7), name, group:accountForm.group, color:accountForm.color, icon:accountForm.icon, iconImage:accountForm.iconImage, sub:accountForm.group === 'credit' ? '自定义信用卡' : '自定义账户', balance };
+    account = { id:'u' + Date.now() + '-' + Math.random().toString(36).slice(2,7), name, group:accountForm.group, color:safeColor(accountForm.color), icon:safeIcon(accountForm.icon, '💳'), iconImage:safeImage(accountForm.iconImage), sub:accountForm.group === 'credit' ? '自定义信用卡' : '自定义账户', balance };
     if (accountForm.group === 'credit') account.credit = true;
     state.userAccounts.push(account);
   }
@@ -1637,6 +1808,18 @@ function deleteAccount(account) {
     }
   });
   saveReimbursements();
+  const counterpartNames = new Set(related.flatMap(tx => {
+    if (tx.type !== 'transfer') return [];
+    if (tx.account === account.name && tx.toAccount && tx.toAccount !== account.name) return [tx.toAccount];
+    if (tx.toAccount === account.name && tx.account && tx.account !== account.name) return [tx.account];
+    return [];
+  }));
+  counterpartNames.forEach(name => {
+    const counterpart = allAccounts().find(item => item.name === name && item.id !== account.id);
+    if (!counterpart) return;
+    const effect = related.reduce((sum, tx) => sum + accountTxEffect(tx, name), 0);
+    if (effect) saveAccountBalance(counterpart, accountBalance(counterpart) - effect);
+  });
   state.txs = state.txs.filter(t => t.account !== account.name && t.toAccount !== account.name);
   state.userAccounts = state.userAccounts.filter(a => a.id !== account.id);
   delete state.userBalances[account.id];
@@ -1750,13 +1933,14 @@ function saveTx() {
     ? { id: editingTx ? editingTx.id : 'u' + Date.now() + '-' + Math.random().toString(36).slice(2,7), date, time, type:add.type, cat:'转账', sub:'', amount, account:add.account, toAccount:add.toAccount }
     : { id: editingTx ? editingTx.id : 'u' + Date.now() + '-' + Math.random().toString(36).slice(2,7), date, time, type:add.type, cat:add.cat, sub: add.sub || (c.subs && c.subs[0]) || '', amount, offer, note: add.note.trim(), account:add.account };
   state.txs.push(tx);
+  const netAmount = txNet(tx);
   const fromAccount = allAccounts().find(a => a.name === add.account);
   const toAccount = transfer ? allAccounts().find(a => a.name === add.toAccount) : fromAccount;
   if (transfer) {
-    if (fromAccount) saveAccountBalance(fromAccount, accountBalance(fromAccount) - amount);
-    if (toAccount) saveAccountBalance(toAccount, accountBalance(toAccount) + amount);
+    if (fromAccount) saveAccountBalance(fromAccount, accountBalance(fromAccount) - netAmount);
+    if (toAccount) saveAccountBalance(toAccount, accountBalance(toAccount) + netAmount);
   } else if (toAccount) {
-    saveAccountBalance(toAccount, accountBalance(toAccount) + (add.type === 'expense' ? -amount : amount));
+    saveAccountBalance(toAccount, accountBalance(toAccount) + (add.type === 'expense' ? -netAmount : netAmount));
   }
   saveTxs();
   const linkedReimb = state.reimbursements.find(r => r.txId === tx.id);
@@ -1988,6 +2172,7 @@ function refreshPage() {
 function bind() {
   $$('.nav-item').forEach(n => n.onclick = () => navigate(n.dataset.page));
   $('#fab-add').onclick = openAdd;
+  $('#asset-add').setAttribute('aria-label', '添加资产账户');
   $('#asset-add').onclick = openAccountModal;
   $('#asset-quick-add').onclick = openAdd;
   $('#savings-add').onclick = openAdd;
@@ -2026,7 +2211,7 @@ function bind() {
   };
   $('#stats-filter-reset').onclick = () => {
     if (state.statsMode === 'month') state.statsRange = [state.month + '-01', state.month + '-' + String(daysInMonth(state.month)).padStart(2,'0')];
-    else state.statsRange = [addDays(localISO(new Date()), -6), localISO(new Date())];
+    else state.statsRange = currentMonthWeekRange();
     setStatsFilterPanel(false);
     renderStats();
   };
@@ -2042,9 +2227,9 @@ function bind() {
 
   $('#stats-mode-btn').onclick = () => {
     state.statsMode = state.statsMode === 'week' ? 'month' : 'week';
-    $('#stats-mode-btn').textContent = state.statsMode === 'week' ? '按周统计' : '按月统计';
+    updateStatsModeButton();
     if (state.statsMode === 'month') state.statsRange = [state.month + '-01', state.month + '-' + String(daysInMonth(state.month)).padStart(2,'0')];
-    else state.statsRange = [addDays(localISO(new Date()), -6), localISO(new Date())];
+    else state.statsRange = currentMonthWeekRange();
     renderStats();
   };
   $('#stats-prev').onclick = () => shiftStatsRange(-1);

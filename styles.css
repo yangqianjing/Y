@@ -14,7 +14,7 @@
 
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{height:100%;}
-body{font-family:-apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;background:#e9eaee;color:var(--text);-webkit-font-smoothing:antialiased;}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;background:#e9eaee;color:var(--text);-webkit-font-smoothing:antialiased;overflow-x:hidden;}
 button{font-family:inherit;border:none;background:none;cursor:pointer;color:inherit;}
 input{font-family:inherit;}
 
@@ -354,7 +354,7 @@ input{font-family:inherit;}
 .sr-day .chev.up{transform:rotate(180deg);}
 
 /* ---------- add modal ---------- */
-.add-panel{width:340px;background:#fff;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px;box-shadow:0 24px 80px rgba(0,0,0,.35);}
+.add-panel{width:min(340px,calc(100vw - 24px));max-width:calc(100vw - 24px);background:#fff;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px;box-shadow:0 24px 80px rgba(0,0,0,.35);}
 .account-panel{width:min(360px,94vw);background:#fff;border-radius:24px;padding:20px;display:flex;flex-direction:column;gap:14px;box-shadow:0 28px 90px rgba(16,24,40,.36),0 8px 24px rgba(16,24,40,.10);}
 .account-head{display:flex;align-items:center;justify-content:space-between;gap:12px;}
 .account-head b{display:block;font-size:15px;}
@@ -417,8 +417,8 @@ input{font-family:inherit;}
 .add-extra{display:grid;grid-template-columns:84px 1fr;gap:6px;}
 .add-extra label{display:flex;align-items:center;gap:5px;font-size:10.5px;color:#5a5f6a;background:#f7f8fa;border:1px solid #e3e5ea;border-radius:9px;padding:6px 8px;}
 .add-extra input{flex:1;min-width:0;border:none;outline:none;background:none;font-size:11px;color:#17181c;}
-.txn-actions{display:none;gap:4px;margin-top:3px;justify-content:flex-end;}
-.txn-item:hover .txn-actions,.txn-item:focus-within .txn-actions{display:flex;}
+.txn-actions{display:flex;gap:4px;margin-top:3px;justify-content:flex-end;opacity:0;pointer-events:none;}
+.txn-item:hover .txn-actions,.txn-item:focus-within .txn-actions{opacity:1;pointer-events:auto;}
 .txn-actions button{font-size:10px;color:#757b85;background:#f2f3f6;border-radius:6px;padding:2px 5px;}
 
 /* 时间选择弹窗（日历 + 滚轮） */
@@ -501,4 +501,22 @@ input{font-family:inherit;}
   .ledger-grid,.stats-grid,.assets-grid,.savings-grid{grid-template-columns:1fr;}
   .summary-row{grid-template-columns:1fr 1fr;}
   .stats-col:last-child{grid-template-columns:1fr;}
+}
+@media (max-width:640px){
+  .sidebar{width:58px;padding:10px 0;}
+  .avatar{width:36px;height:36px;font-size:19px;}
+  .nav-label{display:none;}
+  .topbar{padding:0 12px;}
+  .book-chip,.pill-btn{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .stats-controls{flex-wrap:wrap;}
+  .stats-filter-panel input{width:min(150px,100%);}
+  .reimb-form{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .reimb-form button{grid-column:1 / -1;}
+  .txn-item{gap:8px;}
+}
+@media (max-width:380px){
+  .topbar-title{display:none;}
+  .summary-row{grid-template-columns:1fr;}
+  .stat-tiles{grid-template-columns:repeat(2,1fr);}
+  .card-head{flex-wrap:wrap;}
 }

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>iCost · Web</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -13,15 +14,15 @@
       <div class="avatar">🐱</div>
     </div>
     <nav class="side-nav" id="side-nav">
-      <button class="nav-item active" data-page="ledger"><span class="nav-icon">📒</span><span class="nav-label">账本</span></button>
-      <button class="nav-item" data-page="assets"><span class="nav-icon">🗂️</span><span class="nav-label">资产</span></button>
-      <button class="nav-item" data-page="savings"><span class="nav-icon">🐷</span><span class="nav-label">存钱</span></button>
-      <button class="nav-item" data-page="stats"><span class="nav-icon">📊</span><span class="nav-label">统计</span></button>
-      <button class="nav-item" data-page="settings"><span class="nav-icon">⚙️</span><span class="nav-label">设置</span></button>
+      <button class="nav-item active" data-page="ledger" aria-label="打开账本"><span class="nav-icon" aria-hidden="true">📒</span><span class="nav-label">账本</span></button>
+      <button class="nav-item" data-page="assets" aria-label="打开资产"><span class="nav-icon" aria-hidden="true">🗂️</span><span class="nav-label">资产</span></button>
+      <button class="nav-item" data-page="savings" aria-label="打开存钱"><span class="nav-icon" aria-hidden="true">🐷</span><span class="nav-label">存钱</span></button>
+      <button class="nav-item" data-page="stats" aria-label="打开统计"><span class="nav-icon" aria-hidden="true">📊</span><span class="nav-label">统计</span></button>
+      <button class="nav-item" data-page="settings" aria-label="打开设置"><span class="nav-icon" aria-hidden="true">⚙️</span><span class="nav-label">设置</span></button>
     </nav>
     <div class="side-bottom">
-      <button class="side-icon-btn" id="sync-btn" title="同步">🔄</button>
-      <button class="side-icon-btn" id="help-btn" title="帮助">❓</button>
+      <button class="side-icon-btn" id="sync-btn" title="同步" aria-label="同步数据">🔄</button>
+      <button class="side-icon-btn" id="help-btn" title="帮助" aria-label="查看帮助">❓</button>
     </div>
   </aside>
   <main class="main">
@@ -33,7 +34,7 @@
         </div>
         <div class="topbar-title">账本</div>
         <div class="topbar-right">
-          <button class="pill-btn" id="open-search">🔍 输入关键词</button>
+          <button class="pill-btn" id="open-search" aria-label="打开搜索">🔍 输入关键词</button>
           <button class="pill-btn" id="goto-month-stats">按月统计</button>
         </div>
       </header>
@@ -87,9 +88,9 @@
         <div class="col-right">
           <div class="card calendar-card">
             <div class="cal-head">
-              <button class="round-btn" id="cal-prev">◀</button>
+              <button class="round-btn" id="cal-prev" aria-label="上一月">◀</button>
               <b id="cal-title">2024年5月</b>
-              <button class="round-btn" id="cal-next">▶</button>
+              <button class="round-btn" id="cal-next" aria-label="下一月">▶</button>
             </div>
             <div class="cal-week">
               <span>周日</span><span>周一</span><span>周二</span><span>周三</span><span>周四</span><span>周五</span><span>周六</span>
@@ -101,7 +102,7 @@
           </div>
         </div>
       </div>
-      <button class="fab" id="fab-add">＋</button>
+      <button class="fab" id="fab-add" aria-label="添加账单">＋</button>
     </section>
 
     <section id="page-stats" class="page light">
@@ -232,7 +233,7 @@
     <div class="search-input-row">
       <span class="search-ico">🔍</span>
       <input id="search-input" placeholder="全部" autocomplete="off">
-      <button class="clear-btn" id="search-clear">✕</button>
+      <button class="clear-btn" id="search-clear" aria-label="清空搜索">✕</button>
     </div>
     <div class="filter-row">
       <button class="filter-chip" data-filter="time">时间 ⌄</button>
@@ -254,7 +255,7 @@
         <button class="add-tab" data-type="income">收入</button>
         <button class="add-tab" data-type="transfer">转账</button>
       </div>
-      <button class="add-close" id="add-close">✕</button>
+      <button class="add-close" id="add-close" aria-label="关闭添加面板">✕</button>
     </div>
     <div class="add-amount" id="add-amount">0.00</div>
     <div class="add-pickers">
@@ -272,10 +273,10 @@
       <label>备注<input id="add-note" maxlength="60" placeholder="可选"></label>
     </div>
     <div class="keypad">
-      <button data-key="1">1</button><button data-key="2">2</button><button data-key="3">3</button><button class="fn" data-key="ac">AC</button>
-      <button data-key="4">4</button><button data-key="5">5</button><button data-key="6">6</button><button class="fn" data-key="cny">CNY</button>
-      <button data-key="7">7</button><button data-key="8">8</button><button data-key="9">9</button><button class="done" data-key="done" rowspan="2">完成</button>
-      <button data-key=".">.</button><button data-key="0">0</button><button data-key="del">⌫</button>
+      <button data-key="1" aria-label="输入 1">1</button><button data-key="2" aria-label="输入 2">2</button><button data-key="3" aria-label="输入 3">3</button><button class="fn" data-key="ac" aria-label="清空金额">AC</button>
+      <button data-key="4" aria-label="输入 4">4</button><button data-key="5" aria-label="输入 5">5</button><button data-key="6" aria-label="输入 6">6</button><button class="fn" data-key="cny" aria-label="切换人民币">CNY</button>
+      <button data-key="7" aria-label="输入 7">7</button><button data-key="8" aria-label="输入 8">8</button><button data-key="9" aria-label="输入 9">9</button><button class="done" data-key="done" rowspan="2" aria-label="保存账单">完成</button>
+      <button data-key="." aria-label="输入小数点">.</button><button data-key="0" aria-label="输入 0">0</button><button data-key="del" aria-label="删除最后一位">⌫</button>
     </div>
   </div>
 </div>
