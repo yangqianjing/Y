@@ -13,6 +13,14 @@ const money = n => {
   return (amount < 0 ? '-' : '') + currency.symbol + fmt(Math.abs(amount));
 };
 const signedMoney = (n, type) => (type === 'expense' ? '-' : type === 'income' ? '+' : '') + money(Math.abs(Number(n) || 0));
+const compactMoney = n => {
+  const currency = CURRENCIES[state.currency] || CURRENCIES.CNY;
+  const value = (Number(n) || 0) * currency.rate;
+  const abs = Math.abs(value);
+  if (abs >= 10000) return currency.symbol + (value / 10000).toFixed(2) + 'w';
+  if (abs >= 1000) return currency.symbol + (value / 1000).toFixed(1) + 'k';
+  return currency.symbol + value.toFixed(2);
+};
 
 /* ---------- 状态 ---------- */
 const LS_KEY = 'icostweb_tx_v1';
@@ -391,7 +399,7 @@ function accountBalanceAt(account, date = '') {
 function assetSummaryAt(date = '') {
   const balances = allAccounts().map(a => ({ group:a.group, value:accountBalanceAt(a, date) }));
   const total = balances.filter(b => b.group !== 'credit').reduce((s,b)=>s+b.value,0);
-  const debt = balances.filter(b => b.group === 'credit').reduce((s,b)=>s+Math.abs(b.value),0);
+  const debt = balances.filter(b => b.group === 'credit').reduce((s,b)=>s+Math.max(0,-b.value),0);
   return { total, debt, net: total - debt, fund: balances.filter(b=>b.group==='fund').reduce((s,b)=>s+b.value,0), recharge: balances.filter(b=>b.group==='recharge').reduce((s,b)=>s+b.value,0) };
 }
 function accountIconHTML(account, style = '') {
@@ -401,7 +409,11 @@ function accountIconHTML(account, style = '') {
 function saveAccountBalance(account, value) {
   const amount = Math.round(value * 100) / 100;
   if (account.credit && creditLimitOf(account) !== undefined) {
-    state.creditLimits[account.id] = Math.round((creditLimitOf(account) + amount - accountBalance(account)) * 100) / 100;
+    const currentBalance = accountBalance(account);
+    const baseLimit = state.creditLimits[account.id] !== undefined
+      ? state.creditLimits[account.id] - currentBalance
+      : account.limit;
+    if (Number.isFinite(baseLimit)) state.creditLimits[account.id] = Math.round((baseLimit + amount) * 100) / 100;
   }
   if (ACCOUNTS.some(a => a.id === account.id)) state.userBalances[account.id] = amount;
   else {
@@ -700,7 +712,7 @@ function renderSummary() {
   const reimb = reimbursementTotals(`${state.month}-01`, `${state.month}-${String(dim).padStart(2,'0')}`);
   const cards = [
     { dot:'#FF5D5D', label:'总支出', amount:exp, nav:'stats', sub:[['总收入', money(inc)],['结余', money(inc-exp)]] },
-    { dot:'#34C77B', label:'剩余预算', amount:Math.max(remainBudget,0), nav:'settings', sub:[['总预算', money(state.budget)],['剩余日均', money(Math.max(remainBudget,0)/dim)]], arrow:true },
+    { dot:'#34C77B', label:'剩余预算', amount:remainBudget, nav:'settings', sub:[['总预算', money(state.budget)],['剩余日均', money(remainBudget/dim)]], arrow:true },
     { dot:'#4D9FFF', label:'待报销', amount:reimb.pending, nav:'stats', sub:[['已报销', money(reimb.done)],['报销入账', money(reimb.in)]], arrow:true },
     { dot:'#FFA53C', label:'净资产', amount:assetSummary().net, nav:'assets', sub:[['总资产', money(assetSummary().total)],['总负债', money(assetSummary().debt)]], arrow:true },
   ];
@@ -754,6 +766,7 @@ function txnItemHTML(t) {
     <div class="txn-mid">
       <div class="txn-name">转账 · ${esc(t.account)} → ${esc(t.toAccount)}</div>
       <div class="txn-time">${t.time}</div>
+      ${t.note ? `<div class="txn-note">📍 ${esc(t.note)}</div>` : ''}
     </div>
     <div class="txn-right">
       <div class="txn-amt transfer">${money(t.amount)}</div>
@@ -869,7 +882,8 @@ function renderLedgerCharts() {
   const avg = vals.reduce((s,v)=>s+v,0)/vals.length;
   const peak = data.reduce((a,b)=>b.v>a.v?b:a, data[0]);
   $('#expense-peak').textContent = vals.some(v => v !== 0) ? `${+state.month.slice(5)}月${peak.day}日 ${money(peak.v)} >` : '—';
-  barChart($('#ledger-bar-chart'), data, { color: mode==='income' ? '#2FBF71' : '#FF5D5D', avg });
+  $('#ledger-chart-title').textContent = mode === 'expense' ? '支出统计图' : mode === 'income' ? '收入统计图' : '结余统计图';
+  barChart($('#ledger-bar-chart'), data, { color: mode==='income' ? '#2FBF71' : '#FF5D5D', avg, yFmt: money });
 
   const monthDates = agg.map(d => `${state.month}-${String(d.day).padStart(2,'0')}`);
   const summaries = monthDates.map(d => assetSummaryAt(d));
@@ -882,13 +896,14 @@ function renderLedgerCharts() {
   const monthShort = String(+state.month.slice(5));
   lineChart($('#networth-chart'),
     series.map((v,i)=>({ v, axis: i===0?`${monthShort}-1`:i===15?`${monthShort}-16`:i===series.length-1?`${monthShort}-${daysInMonth(state.month)}`:'' })),
-    { color:'#FFA53C', yFmt: v => (v/10000).toFixed(2)+'w', dotLast:true });
+    { color:'#FFA53C', yFmt: compactMoney, dotLast:true });
 }
 
 function renderDonut() {
   const txs = txsInMonth(state.month);
   const type = state.ledgerTab === 'income' ? 'income' : 'expense';
   const typeLabel = type === 'expense' ? '支出' : '收入';
+  $('#ledger-cat-title').textContent = `${typeLabel}分类详情`;
   const drill = state.drillCategory;
   const activeTxs = drill ? txs.filter(t => t.type === type && t.cat === drill) : txs;
   const rows = drill ? subAgg(txs, type, drill) : catAgg(txs, type);
@@ -941,6 +956,9 @@ function currentMonthWeekRange() {
   return [addDays(end, -6), end];
 }
 function renderStats() {
+  $('#stats-chart-title').textContent = state.statsLineTab === 'expense' ? '支出统计图' : state.statsLineTab === 'income' ? '收入统计图' : '结余统计图';
+  $('#stats-cat-title').textContent = `${state.incomeDonutTab === 'expense' ? '支出' : '收入'}分类详情`;
+  $('#stats-table-title').textContent = `账单汇总 (${state.currency})`;
   updateStatsModeButton();
   const days = statsRangeDays();
   const from = days[0], to = days[days.length-1];
@@ -966,7 +984,7 @@ function renderStats() {
     const target = allAccounts().find(a => a.name === t.toAccount);
     return target && target.group === 'recharge';
   }).reduce((s,t)=>s+t.amount,0);
-  const borrowIn = txs.filter(t => /借入/.test(incomeText(t))).reduce((s,t)=>s+t.amount,0);
+  const borrowIn = txs.filter(t => t.type === 'income' && /借入/.test(incomeText(t))).reduce((s,t)=>s+txNet(t),0);
   const borrowOut = txs.filter(t => (t.type === 'expense' || t.type === 'transfer') && /借出/.test(incomeText(t))).reduce((s,t)=>s+t.amount,0);
   const tile = (label, val, cls='') => `<div class="stat-tile"><div class="st-label">${label}</div><div class="st-value ${cls}">${val}</div></div>`;
   $('#income-tiles').innerHTML =
@@ -996,7 +1014,7 @@ function renderStats() {
     return { v, label:d, axis:weekdayOf(d) };
   });
   const color = state.statsLineTab==='expense' ? '#FF5D5D' : '#2FBF71';
-  lineChart($('#stats-line-chart'), lineData, { color, yFmt: v => v>=1000 ? (v/1000).toFixed(2)+'k' : v.toFixed(2) });
+  lineChart($('#stats-line-chart'), lineData, { color, yFmt: compactMoney });
 
   const table = $('#week-table');
   let rows = `<tr><th>日期</th><th class="r">支出</th><th class="r">收入</th><th class="r">结余</th></tr>`;
@@ -1027,7 +1045,7 @@ function renderStats() {
   const last7 = series.slice(-7);
   const axisDays = days.slice(-7);
   $('#total-assets-meta').textContent = `${+to.slice(5,7)}月${+to.slice(8,10)}日 ${money(series[series.length-1])}`;
-  lineChart($('#assets-line-chart'), last7.map((v,i)=>({ v, axis:weekdayOf(axisDays[i]) })), { color:'#2FBF71', yFmt:v=>(v/10000).toFixed(2)+'w', dashedTail:true });
+  lineChart($('#assets-line-chart'), last7.map((v,i)=>({ v, axis:weekdayOf(axisDays[i]) })), { color:'#2FBF71', yFmt:compactMoney, dashedTail:true });
 }
 
 /* ---------- 渲染：资产页 ---------- */
@@ -1079,8 +1097,8 @@ function renderAssetDetail() {
   const a = accOf(state.selectedAccountId);
   const txs = state.txs.filter(t => t.account === a.name || t.toAccount === a.name).sort((x,y)=> y.date.localeCompare(x.date) || y.time.localeCompare(x.time));
   const monthTxs = txs.filter(t => monthOf(t.date) === state.month);
-  const out = monthTxs.filter(t => t.type === 'expense' || (t.type === 'transfer' && t.account === a.name)).reduce((s,t)=>s+t.amount,0);
-  const inc = monthTxs.filter(t => t.type === 'income' || (t.type === 'transfer' && t.toAccount === a.name)).reduce((s,t)=>s+t.amount,0);
+  const out = monthTxs.filter(t => t.type === 'expense' || (t.type === 'transfer' && t.account === a.name)).reduce((s,t)=>s+txNet(t),0);
+  const inc = monthTxs.filter(t => t.type === 'income' || (t.type === 'transfer' && t.toAccount === a.name)).reduce((s,t)=>s+txNet(t),0);
   const isCredit = !!a.credit;
   const balance = accountBalance(a);
   const months = {};
@@ -1091,19 +1109,19 @@ function renderAssetDetail() {
         <div class="acc-ico" style="background:${a.color};width:38px;height:38px">${accountIconHTML(a)}</div>
         <div class="dt-name">${esc(a.name)}</div>
         <div class="dt-actions">
-          <button class="dt-btn" data-action="record">${isCredit?'还款':'转入'}</button>
+          <button class="dt-btn" data-action="record">${isCredit?'还款':a.group === 'recharge'?'充值':'转入'}</button>
           <button class="dt-btn" data-action="balance">调整余额</button>
           ${state.userAccounts.some(item => item.id === a.id) ? '<button class="dt-btn" data-action="edit-account">编辑</button><button class="dt-btn danger" data-action="delete-account">删除</button>' : ''}
         </div>
       </div>
-      <div class="dt-amount-label">${isCredit?'当前欠款':'当前余额'} (CNY)</div>
-      <div class="dt-amount ${isCredit?'edit':''}"><span class="yen">¥</span>${fmt(Math.abs(balance))} ${isCredit?'✏️':''}</div>
+      <div class="dt-amount-label">${isCredit && balance < 0 ? '当前欠款' : '当前余额'} (${state.currency})</div>
+      <div class="dt-amount ${isCredit?'edit':''}">${money(Math.abs(balance))} ${isCredit?'✏️':''}</div>
       ${isCredit ? (creditLimitOf(a) !== undefined ? `<div class="dt-meta"><span>可用额度 <b>${money(creditLimitOf(a))}</b></span><span>出账日 <b>每月10日</b></span></div>` : '') : `<div class="dt-meta"><span>本月流出 <b class="dt-out" style="color:var(--red)">${money(out)}</b></span><span>流入 <b style="color:var(--green)">${money(inc)}</b></span></div>`}
       <div class="notice">ⓘ 关于金额调整 <span class="x">✕</span></div>
       ${Object.keys(months).sort().reverse().map(m => {
         const list = months[m];
-        const mo = list.filter(t => t.type === 'expense' || (t.type === 'transfer' && t.account === a.name)).reduce((s,t)=>s+t.amount,0);
-        const mi = list.filter(t => t.type === 'income' || (t.type === 'transfer' && t.toAccount === a.name)).reduce((s,t)=>s+t.amount,0);
+        const mo = list.filter(t => t.type === 'expense' || (t.type === 'transfer' && t.account === a.name)).reduce((s,t)=>s+txNet(t),0);
+        const mi = list.filter(t => t.type === 'income' || (t.type === 'transfer' && t.toAccount === a.name)).reduce((s,t)=>s+txNet(t),0);
         return `<div class="bill-month">
           <div class="bm-head">
             <span class="bm-title">${m.slice(0,4)}年${+m.slice(5)}月</span>
@@ -1412,7 +1430,7 @@ function renderSettings() {
     <div class="set-item"><div class="s-label">导出 Excel<div class="s-desc">选择账单时间，导出标准 .xlsx</div></div><button class="set-btn" id="export-excel-open">选择时间</button></div>
     <div class="set-item"><div class="s-label">重置示例数据<div class="s-desc">清除本地修改，恢复演示数据</div></div><button class="set-btn danger" id="reset-btn">重置</button></div>
     <div class="set-group-title">关于</div>
-    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.14 · 本地完整版 · 数据仅保存在本机</div></div></div>`;
+    <div class="set-item"><div class="s-label">iCost Web<div class="s-desc">v1.0.15 · 本地完整版 · 数据仅保存在本机</div></div></div>`;
   $('#save-budget').onclick = () => {
   const v = finiteAmount($('#budget-input').value);
     if (isNaN(v) || v <= 0) { toast('请输入有效的预算金额'); return; }
@@ -1426,7 +1444,7 @@ function renderSettings() {
   $('#currency-select').onchange = e => { state.currency = e.target.value; saveSettings(); refreshPage(); toast('货币显示已更新'); };
   $('#week-start-select').onchange = e => { state.weekStart = +e.target.value; saveSettings(); refreshPage(); toast('每周开始日已更新'); };
   $('#export-btn').onclick = () => {
-    const backup = { app:'iCost Web', version:'1.0.14', exportedAt:new Date().toISOString(), txs:state.txs, accounts:state.userAccounts, balances:state.userBalances, creditLimits:state.creditLimits, budget:state.budget, savedCards:[...state.savedCards], userSubs:state.userSubs, subIcons:state.subIcons, settings:{ currency:state.currency, weekStart:state.weekStart }, savingsDeposits:state.savingsDeposits, reimbursements:state.reimbursements };
+    const backup = { app:'iCost Web', version:'1.0.15', exportedAt:new Date().toISOString(), txs:state.txs, accounts:state.userAccounts, balances:state.userBalances, creditLimits:state.creditLimits, budget:state.budget, savedCards:[...state.savedCards], userSubs:state.userSubs, subIcons:state.subIcons, settings:{ currency:state.currency, weekStart:state.weekStart }, savingsDeposits:state.savingsDeposits, reimbursements:state.reimbursements };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type:'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = 'icost-web-backup.json'; a.click();
@@ -1542,7 +1560,7 @@ function renderSearch() {
     if (f.types.length && !f.types.includes(t.type)) return false;
     if (f.account && t.account !== f.account && t.toAccount !== f.account) return false;
     if (!q) return true;
-    if ((t.cat + (t.sub||'') + t.account + (t.note||'')).toLowerCase().includes(q)) return true;
+    if ((t.cat + (t.sub||'') + t.account + (t.toAccount||'') + (t.note||'')).toLowerCase().includes(q)) return true;
     return !isNaN(qn) && String(t.amount).includes(q);
   });
   const exp = txs.filter(t=>t.type==='expense').reduce((s,t)=>s+txNet(t),0);
@@ -1744,6 +1762,7 @@ function openAccountModal(source = 'asset', editId = '') {
 
 function closeAccountModal() {
   $('#account-overlay').classList.add('hidden');
+  state.accountEditingId = '';
 }
 
 function saveAccount() {
@@ -1767,6 +1786,7 @@ function saveAccount() {
       saveTxs();
     }
     account = editing;
+    saveAccountBalance(account, balance);
   } else {
     account = { id:'u' + Date.now() + '-' + Math.random().toString(36).slice(2,7), name, group:accountForm.group, color:safeColor(accountForm.color), icon:safeIcon(accountForm.icon, '💳'), iconImage:safeImage(accountForm.iconImage), sub:accountForm.group === 'credit' ? '自定义信用卡' : '自定义账户', balance };
     if (accountForm.group === 'credit') account.credit = true;
@@ -1834,18 +1854,12 @@ function deleteAccount(account) {
 }
 
 function openAccountTransaction(account) {
+  const source = allAccounts().find(a => a.name !== account.name && (!account.credit ? a.group === 'fund' : a.group !== 'credit'));
+  if (!source) { toast('请先添加一个资金账户'); return; }
   openAdd();
-  if (account.credit) {
-    add.type = 'transfer';
-    add.toAccount = account.name;
-    const source = allAccounts().find(a => a.group === 'fund' && a.name !== account.name);
-    add.account = source ? source.name : (allAccounts().find(a => a.name !== account.name) || {}).name || add.account;
-  } else {
-    add.type = 'income';
-    add.account = account.name;
-    add.cat = '副业';
-    add.sub = subsOf(add.cat)[0] || '';
-  }
+  add.type = 'transfer';
+  add.account = source.name;
+  add.toAccount = account.name;
   add.amount = '0';
   add.creatingSub = false;
   renderAdd();
@@ -1870,8 +1884,8 @@ function finishAppPrompt(value) {
 async function editAccountBalance(account) {
   const value = await appPrompt(`调整「${account.name}」当前余额`, Math.abs(accountBalance(account)).toFixed(2));
   if (value === null) return;
-  const amount = parseFloat(value);
-  if (isNaN(amount) || amount < 0) { toast('请输入有效的余额'); return; }
+  const amount = roundedAmount(value);
+  if (!Number.isFinite(amount) || amount < 0) { toast('请输入有效的余额'); return; }
   saveAccountBalance(account, account.credit ? -amount : amount);
   renderAssets();
   toast('余额已更新 ✓');
@@ -1913,7 +1927,7 @@ function closeAccountSelect() {
 function keypadPress(key) {
   if (key === 'ac') add.amount = '0';
   else if (key === 'del') add.amount = add.amount.length > 1 ? add.amount.slice(0,-1) : '0';
-  else if (key === 'cny') { toast('货币单位：CNY'); return; }
+  else if (key === 'cancel') { closeAdd(); return; }
   else if (key === 'done') { saveTx(); return; }
   else if (key === '.') { if (!add.amount.includes('.')) add.amount += '.'; }
   else {
@@ -1929,6 +1943,7 @@ function saveTx() {
   if (Math.abs(amount * 100 - Math.round(amount * 100)) > 0.001) { toast('金额最多保留两位小数'); return; }
   const offer = add.type === 'expense' ? (parseFloat(add.offer || '0') || 0) : 0;
   if (offer < 0 || offer >= amount) { toast('请输入小于金额的优惠'); return; }
+  if (Math.abs(offer * 100 - Math.round(offer * 100)) > 0.001) { toast('优惠最多保留两位小数'); return; }
   if (add.type === 'transfer' && add.toAccount === add.account) { toast('转入账户不能与转出账户相同'); return; }
   const transfer = add.type === 'transfer';
   const c = transfer ? null : catOf(add.cat);
@@ -1939,7 +1954,7 @@ function saveTx() {
     allAccounts().forEach(account => saveAccountBalance(account, accountBalance(account) - accountTxEffect(editingTx, account.name)));
   }
   const tx = transfer
-    ? { id: editingTx ? editingTx.id : 'u' + Date.now() + '-' + Math.random().toString(36).slice(2,7), date, time, type:add.type, cat:'转账', sub:'', amount, account:add.account, toAccount:add.toAccount }
+    ? { id: editingTx ? editingTx.id : 'u' + Date.now() + '-' + Math.random().toString(36).slice(2,7), date, time, type:add.type, cat:'转账', sub:'', amount, account:add.account, toAccount:add.toAccount, note: add.note.trim() }
     : { id: editingTx ? editingTx.id : 'u' + Date.now() + '-' + Math.random().toString(36).slice(2,7), date, time, type:add.type, cat:add.cat, sub: add.sub || (c.subs && c.subs[0]) || '', amount, offer, note: add.note.trim(), account:add.account };
   state.txs.push(tx);
   const netAmount = txNet(tx);
@@ -2158,6 +2173,13 @@ function navigate(page) {
   $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
   $$('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + page));
   $('#app').classList.toggle('dark', page === 'savings');
+  if (page === 'stats') {
+    const monthStart = `${state.month}-01`;
+    const monthEnd = `${state.month}-${String(daysInMonth(state.month)).padStart(2, '0')}`;
+    if (!(state.statsRange[0] <= monthEnd && state.statsRange[1] >= monthStart)) {
+      state.statsRange = state.statsMode === 'month' ? [monthStart, monthEnd] : currentMonthWeekRange();
+    }
+  }
   refreshPage();
 }
 

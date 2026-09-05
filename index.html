@@ -45,7 +45,7 @@
             <div class="col-main">
               <div class="card chart-card">
                 <div class="card-head">
-                  <span class="card-ico yellow">📈</span><b>支出统计图</b>
+                  <span class="card-ico yellow">📈</span><b id="ledger-chart-title">支出统计图</b>
                   <span class="head-meta" id="expense-peak"></span>
                   <span class="head-ico">📊</span>
                 </div>
@@ -72,7 +72,7 @@
             <div class="col-mid">
               <div class="card">
                 <div class="card-head">
-                  <span class="card-ico yellow">🍩</span><b>支出分类详情</b>
+                  <span class="card-ico yellow">🍩</span><b id="ledger-cat-title">支出分类详情</b>
                   <button class="mini-pill" id="cat-level-pill">一级分类 ⌄</button>
                 </div>
                 <div class="donut-wrap"><div id="cat-donut"></div></div>
@@ -133,7 +133,7 @@
             <div class="stat-tiles" id="income-tiles"></div>
           </div>
           <div class="card">
-            <div class="card-head"><span class="card-ico yellow">🍩</span><b>收入分类详情</b><button class="mini-pill">一级分类 ⌄</button></div>
+            <div class="card-head"><span class="card-ico yellow">🍩</span><b id="stats-cat-title">收入分类详情</b><button class="mini-pill">一级分类 ⌄</button></div>
             <div class="donut-wrap"><div id="income-donut"></div></div>
             <div class="seg-tabs" id="income-donut-tabs">
               <button class="seg" data-mode="expense">支出</button>
@@ -148,7 +148,7 @@
             <div class="stat-tiles" id="reimb-tiles"></div>
           </div>
           <div class="card">
-            <div class="card-head"><span class="card-ico yellow">📈</span><b>收入统计图</b><span class="head-meta">平均值: <span id="stats-avg"></span></span></div>
+            <div class="card-head"><span class="card-ico yellow">📈</span><b id="stats-chart-title">收入统计图</b><span class="head-meta">平均值: <span id="stats-avg"></span></span></div>
             <div class="seg-tabs" id="stats-line-tabs">
               <button class="seg" data-mode="expense">支出</button>
               <button class="seg active" data-mode="income">收入</button>
@@ -157,7 +157,7 @@
             <div id="stats-line-chart" class="chart-box small"></div>
           </div>
           <div class="card">
-            <div class="card-head"><span class="card-ico yellow">📅</span><b>周账单汇总 (CNY)</b></div>
+            <div class="card-head"><span class="card-ico yellow">📅</span><b id="stats-table-title">账单汇总 (CNY)</b></div>
             <table class="sum-table" id="week-table"></table>
           </div>
         </div>
@@ -273,7 +273,7 @@
     </div>
     <div class="keypad">
       <button data-key="1" aria-label="输入 1">1</button><button data-key="2" aria-label="输入 2">2</button><button data-key="3" aria-label="输入 3">3</button><button class="fn" data-key="ac" aria-label="清空金额">AC</button>
-      <button data-key="4" aria-label="输入 4">4</button><button data-key="5" aria-label="输入 5">5</button><button data-key="6" aria-label="输入 6">6</button><button class="fn" data-key="cny" aria-label="切换人民币">CNY</button>
+      <button data-key="4" aria-label="输入 4">4</button><button data-key="5" aria-label="输入 5">5</button><button data-key="6" aria-label="输入 6">6</button><button class="fn" data-key="cancel" aria-label="取消记账">取消</button>
       <button data-key="7" aria-label="输入 7">7</button><button data-key="8" aria-label="输入 8">8</button><button data-key="9" aria-label="输入 9">9</button><button class="done" data-key="done" rowspan="2" aria-label="保存账单">完成</button>
       <button data-key="." aria-label="输入小数点">.</button><button data-key="0" aria-label="输入 0">0</button><button data-key="del" aria-label="删除最后一位">⌫</button>
     </div>
